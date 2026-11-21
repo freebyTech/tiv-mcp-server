@@ -1,0 +1,142 @@
+using freebyTech.Common.ExtensionMethods;
+using freebyTech.Common.Interfaces;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.AspNetCore.Authentication;
+using Serilog;
+using tivMcp.Api.Authorization;
+using tivMcp.Api.Constants;
+using tivMcp.Api.Options;
+using tivMcp.Api.Tools;
+
+namespace tivMcp.Api;
+
+/// <summary>
+/// Startup class for tivMcp.Api application.
+/// </summary>
+public class Startup
+{
+  readonly string _appName;
+  readonly string _fullVersion;
+  readonly IExecutionEnvironment _executionEnvironment;
+
+  /// <summary>
+  /// Startup class constructor
+  /// </summary>
+  public Startup(IExecutionEnvironment executionEnvironment, IConfiguration configuration)
+  {
+    if (executionEnvironment == null || configuration == null)
+    {
+      throw new Exception("Startup construction not passed correct paramters.");
+    }
+    _appName = executionEnvironment.GetAppName();
+    _fullVersion = executionEnvironment.GetFullVersion();
+    _executionEnvironment = executionEnvironment;
+  }
+
+  /// <summary>
+  /// This method gets called by the runtime. Use this method to add services to the container.
+  /// </summary>
+  /// <param name="services"></param>
+  /// <param name="configuration"></param>
+  public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+  {
+    if (services == null)
+    {
+      throw new Exception("Services collection was not passed to ConfigureServices.");
+    }
+
+    if (configuration == null)
+    {
+      throw new Exception("Configuration collection was not passed to ConfigureServices.");
+    }
+
+    Log.Information($"Configuring Services for {_appName} {_fullVersion}");
+
+    // Build out the MCPAPP section for configuration. Every value comes from the environment;
+    // there are deliberately no defaults, so a missing setting stops the host instead of silently
+    // pointing at some other environment.
+    var mcpAppSection = configuration.GetSection(McpAppOptions.SectionName);
+    services.Configure<McpAppOptions>(mcpAppSection);
+
+    var mcpAppOptions = mcpAppSection.Get<McpAppOptions>() ?? new McpAppOptions();
+    var configurationErrors = McpAppOptionsValidator.Validate(mcpAppOptions);
+    if (configurationErrors.Count > 0)
+    {
+      throw new Exception($"Invalid {McpAppOptions.SectionName} configuration: {string.Join(" ", configurationErrors)}");
+    }
+
+    Log.Information($"MCP tools will call the trackItsValue API at '{mcpAppOptions.TivApiBaseUrl}'");
+    Log.Information($"MCP server will be validating against '{mcpAppOptions.StsAuthority}' for audience '{mcpAppOptions.StsAudience}'");
+
+    // The server is an OAuth protected resource. Incoming bearer tokens are validated as JWTs
+    // (issuer + signing keys discovered from the authority, audience = this server's own URL).
+    // An unauthenticated call is challenged by the MCP handler, whose WWW-Authenticate header
+    // points the assistant at the protected resource metadata so it can find the authorization
+    // server and sign the user in.
+    services
+      .AddAuthentication(options =>
+      {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = McpAuthenticationDefaults.AuthenticationScheme;
+      })
+      .AddJwtBearer(options =>
+      {
+        options.Authority = mcpAppOptions.StsAuthority;
+        options.Audience = mcpAppOptions.StsAudience;
+      })
+      .AddMcp(options =>
+      {
+        options.ResourceMetadata = new()
+        {
+          Resource = mcpAppOptions.StsAudience,
+          AuthorizationServers = { mcpAppOptions.StsAuthority },
+          ScopesSupported = [.. McpScopes.All],
+        };
+      });
+
+    services.AddAuthorization();
+
+    // The one place that decides which token is presented to the trackItsValue API.
+    services.AddHttpContextAccessor();
+    services.AddScoped<IUserTokenSource, ForwardedUserTokenSource>();
+
+    services.AddSingleton(new ServerInfo(_appName, _fullVersion));
+
+    services
+      .AddMcpServer()
+      .WithHttpTransport(options =>
+      {
+        // Stateless: no server-to-client requests are needed, and it lets the server scale
+        // horizontally without session affinity.
+        options.SessionMode = HttpServerSessionMode.Stateless;
+      })
+      .WithTools<ServerInfoTools>();
+  }
+
+  /// <summary>
+  /// This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+  /// </summary>
+  /// <param name="app"></param>
+  public void ConfigureApplication(WebApplication app)
+  {
+    if (_executionEnvironment.IsDevelopment() || _executionEnvironment.IsLocal())
+    {
+      app.UseDeveloperExceptionPage();
+    }
+    else
+    {
+      app.UseHsts();
+    }
+
+    app.UseRouting();
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    // Unauthenticated liveness/readiness probe. Returns nothing about users or configuration.
+    app.MapGet(McpConstants.HealthPath, () => Results.Ok(new { status = "ok" }));
+
+    // Every MCP request must carry a valid token for this server.
+    app.MapMcp(McpConstants.McpPath).RequireAuthorization();
+  }
+}

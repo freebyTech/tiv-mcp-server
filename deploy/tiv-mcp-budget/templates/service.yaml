@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tiv-mcp-budget.fullname" . }}
+  labels:
+    {{- include "tiv-mcp-budget.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.internalPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "tiv-mcp-budget.selectorLabels" . | nindent 4 }}
