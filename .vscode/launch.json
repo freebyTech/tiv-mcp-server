@@ -1,0 +1,28 @@
+{
+  // Use IntelliSense to find out which attributes exist for C# debugging
+  // Use hover for the description of the existing attributes
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": ".NET Core Launch (MCP server)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/tivMcp.Api/bin/Debug/net10.0/tivMcp.Api.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/tivMcp.Api",
+      "stopAtEntry": false,
+      "internalConsoleOptions": "openOnSessionStart",
+      "justMyCode": false,
+      // Copy .env.example to .env (git-ignored) and fill in your own values.
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": ".NET Core Attach",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "justMyCode": false
+    }
+  ]
+}
