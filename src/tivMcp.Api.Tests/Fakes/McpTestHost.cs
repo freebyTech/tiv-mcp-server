@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using tivMcp.Api.Services;
 
 namespace tivMcp.Api.Tests.Fakes;
 
@@ -36,7 +37,8 @@ internal sealed class McpTestHost : IAsyncDisposable
     Client = app.GetTestClient();
   }
 
-  public static async Task<McpTestHost> StartAsync()
+  /// <param name="tivApi">Stands in for the trackItsValue API; when omitted, any call to the API fails the test.</param>
+  public static async Task<McpTestHost> StartAsync(HttpMessageHandler? tivApi = null)
   {
     var builder = WebApplication.CreateBuilder();
     builder.WebHost.UseTestServer();
@@ -59,6 +61,10 @@ internal sealed class McpTestHost : IAsyncDisposable
       JwtBearerDefaults.AuthenticationScheme,
       options => options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(openIdConfiguration)
     );
+
+    // No test ever reaches a real API: outbound calls go to the stand-in.
+    var tivApiHandler = tivApi ?? new FakeTivApi(_ => throw new InvalidOperationException("This test did not expect a call to the trackItsValue API."));
+    builder.Services.AddHttpClient(TivApiClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => tivApiHandler);
 
     var app = builder.Build();
     startup.ConfigureApplication(app);
