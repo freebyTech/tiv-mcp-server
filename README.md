@@ -111,9 +111,24 @@ After signing in, run the `get_server_info` tool to confirm the connection.
 
 ## Tools
 
-| Tool              | Kind      | Description                                   |
-| ----------------- | --------- | --------------------------------------------- |
-| `get_server_info` | Read-only | Name and version of the running MCP server    |
+Every tool is read-only. Each one calls a single trackItsValue API endpoint as the signed-in
+user and returns the API's JSON unchanged.
+
+| Tool                       | API endpoint                                      | Description                                                                 |
+| -------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| `get_server_info`          | (none)                                            | Name and version of the running MCP server                                  |
+| `list_budgets`             | `GET budgeting/budgets/list/{count}`              | The user's most recent monthly budgets, newest first                        |
+| `get_budget`               | `GET budgeting/budgets/{name}/{year}/{month}`     | One month's budget: totals, categories, items and actuals                   |
+| `list_accounts`            | `GET accounting/accounts/all`                     | The user's accounts                                                         |
+| `get_accounts_overview`    | `GET accounting/accounts/all/{year}/{month}`      | All accounts for one month, with balances and that month's transactions     |
+| `get_user_status`          | `GET user/status`                                 | The user's level, experience points and counts of budgets and accounts      |
+| `get_total_wealth_outlook` | `GET dashboards/total-wealth?range=`              | Wealth over time, one point per closed month                                |
+| `export_data`              | `GET export`                                      | A complete copy of the user's data as JSON (the export's `data.json`)       |
+
+What a user may see is decided by the trackItsValue API, not by this server. When the API
+refuses a call (not signed in, a feature the user's level has not unlocked, a plan limit, or a
+connection that was not granted the needed permission), the tool returns the API's reason as a
+plain sentence.
 
 ## Repository layout
 

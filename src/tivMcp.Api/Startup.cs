@@ -8,6 +8,8 @@ using Serilog;
 using tivMcp.Api.Authorization;
 using tivMcp.Api.Constants;
 using tivMcp.Api.Options;
+using tivMcp.Api.Services;
+using tivMcp.Api.Services.Interfaces;
 using tivMcp.Api.Tools;
 
 namespace tivMcp.Api;
@@ -115,6 +117,10 @@ public class Startup
     services.AddHttpContextAccessor();
     services.AddScoped<IUserTokenSource, ForwardedUserTokenSource>();
 
+    // The one client every tool uses to reach the trackItsValue API, as the signed-in user.
+    services.AddHttpClient(TivApiClient.HttpClientName);
+    services.AddScoped<ITivApiClient, TivApiClient>();
+
     services.AddSingleton(new ServerInfo(_appName, _fullVersion));
 
     services
@@ -125,7 +131,11 @@ public class Startup
         // horizontally without session affinity.
         options.SessionMode = HttpServerSessionMode.Stateless;
       })
-      .WithTools<ServerInfoTools>();
+      .WithTools<ServerInfoTools>()
+      .WithTools<BudgetTools>()
+      .WithTools<AccountTools>()
+      .WithTools<UserTools>()
+      .WithTools<ExportTools>();
   }
 
   /// <summary>
