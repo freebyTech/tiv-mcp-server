@@ -1,6 +1,7 @@
 using freebyTech.Common.ExtensionMethods;
 using freebyTech.Common.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.AspNetCore.Authentication;
 using Serilog;
@@ -97,6 +98,19 @@ public class Startup
 
     services.AddAuthorization();
 
+    // The server runs behind a TLS-terminating ingress, so requests reach it as plain http. Honor
+    // the ingress's X-Forwarded-Proto so the URLs the server writes about itself (the metadata
+    // location in the 401 challenge) say https. Only the scheme is taken from the header, never
+    // the host or client address. The proxy's address is not known in advance inside a cluster,
+    // so the default loopback-only restriction is lifted; the pod is reachable only through the
+    // ingress.
+    services.Configure<ForwardedHeadersOptions>(options =>
+    {
+      options.ForwardedHeaders = ForwardedHeaders.XForwardedProto;
+      options.KnownIPNetworks.Clear();
+      options.KnownProxies.Clear();
+    });
+
     // The one place that decides which token is presented to the trackItsValue API.
     services.AddHttpContextAccessor();
     services.AddScoped<IUserTokenSource, ForwardedUserTokenSource>();
@@ -120,6 +134,9 @@ public class Startup
   /// <param name="app"></param>
   public void ConfigureApplication(WebApplication app)
   {
+    // First, so everything after it sees the scheme the caller actually used.
+    app.UseForwardedHeaders();
+
     if (_executionEnvironment.IsDevelopment() || _executionEnvironment.IsLocal())
     {
       app.UseDeveloperExceptionPage();
