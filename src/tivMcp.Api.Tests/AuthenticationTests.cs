@@ -55,6 +55,35 @@ public class AuthenticationTests
   }
 
   [Fact]
+  public async Task Challenge_behind_a_tls_terminating_proxy_points_at_https()
+  {
+    // In the cluster the ingress ends TLS and calls the server over plain http, saying so in
+    // X-Forwarded-Proto. The metadata location handed to the assistant must be the https one.
+    await using var host = await McpTestHost.StartAsync();
+    var request = McpInitialize();
+    request.Headers.Add("X-Forwarded-Proto", "https");
+
+    var response = await host.Client.SendAsync(request);
+
+    var metadataUrl = Regex.Match(response.Headers.WwwAuthenticate.ToString(), "resource_metadata=\"([^\"]+)\"").Groups[1].Value;
+    Assert.StartsWith("https://", metadataUrl);
+  }
+
+  [Fact]
+  public async Task Forwarded_host_is_not_trusted()
+  {
+    // Only the scheme is taken from forwarded headers; a caller cannot make the server point
+    // assistants at another host.
+    await using var host = await McpTestHost.StartAsync();
+    var request = McpInitialize();
+    request.Headers.Add("X-Forwarded-Host", "evil.example.test");
+
+    var response = await host.Client.SendAsync(request);
+
+    Assert.DoesNotContain("evil.example.test", response.Headers.WwwAuthenticate.ToString());
+  }
+
+  [Fact]
   public async Task Protected_resource_metadata_names_this_server_the_authority_and_the_scopes()
   {
     await using var host = await McpTestHost.StartAsync();
