@@ -19,7 +19,9 @@ public class ToolsEndToEndTests
   [
     "export_data",
     "get_accounts_overview",
+    "get_accounts_summary",
     "get_budget",
+    "get_budget_summary",
     "get_server_info",
     "get_total_wealth_outlook",
     "get_user_status",
@@ -141,6 +143,44 @@ public class ToolsEndToEndTests
 
     Assert.Equal($"{McpTestHost.TivApiBaseUrl}/budgeting/budgets/default/2026/7", api.Requests[0].RequestUri!.AbsoluteUri);
     Assert.Equal($"{McpTestHost.TivApiBaseUrl}/dashboards/total-wealth?range=1yr", api.Requests[1].RequestUri!.AbsoluteUri);
+  }
+
+  [Fact]
+  public async Task A_summary_tool_passes_the_apis_json_to_the_agent_api_as_the_same_user()
+  {
+    const string budget = """{"description":"default","year":2026,"month":11,"budgetCategories":[]}""";
+    var api = FakeTivApi.Returning(budget);
+    string? sentToAgent = null;
+    var agentApi = new FakeTivApi(request =>
+    {
+      sentToAgent = request.Content!.ReadAsStringAsync().Result;
+      return FakeTivApi.Json("""{"summary":["Budget: default 2026-11","Income: Estimated=$0.00, Actual=$0.00"]}""");
+    });
+    await using var host = await McpTestHost.StartAsync(api, agentApi);
+    var token = McpTestHost.CreateToken();
+
+    var response = await CallTool(host, token, "get_budget_summary", new { year = 2026, month = 11 });
+
+    Assert.False(IsError(response));
+    Assert.Equal("Budget: default 2026-11\nIncome: Estimated=$0.00, Actual=$0.00", ResultText(response));
+    Assert.Equal($"{McpTestHost.TivApiBaseUrl}/budgeting/budgets/default/2026/11", api.SingleRequest.RequestUri!.AbsoluteUri);
+    Assert.Equal(HttpMethod.Post, agentApi.SingleRequest.Method);
+    Assert.Equal($"{McpTestHost.TivAgentApiBaseUrl}/budget-agent/summarize-budget", agentApi.SingleRequest.RequestUri!.AbsoluteUri);
+    Assert.Equal($$"""{"budget":{{budget}}}""", sentToAgent);
+    Assert.Equal(token, agentApi.SingleRequest.Headers.Authorization!.Parameter);
+  }
+
+  [Fact]
+  public async Task A_refusal_from_the_agent_api_comes_back_as_a_tool_error_and_does_not_hide_the_reason()
+  {
+    var api = FakeTivApi.Returning("{}");
+    var agentApi = FakeTivApi.Returning("""{"detail":"Invalid audience"}""", HttpStatusCode.Forbidden);
+    await using var host = await McpTestHost.StartAsync(api, agentApi);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "get_accounts_summary", new { year = 2026, month = 11 });
+
+    Assert.True(IsError(response));
+    Assert.Contains("trackItsValue refused this request: Invalid audience", ResultText(response));
   }
 
   [Fact]

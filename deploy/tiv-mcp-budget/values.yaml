@@ -17,6 +17,11 @@ env:
       secretKeyRef:
         name: tiv-mcp-budget-secrets
         key: MCPAPP__TIVAPIBASEURL
+  - name: MCPAPP__TIVAGENTAPIBASEURL
+    valueFrom:
+      secretKeyRef:
+        name: tiv-mcp-budget-secrets
+        key: MCPAPP__TIVAGENTAPIBASEURL
   - name: MCPAPP__STSAUTHORITY
     valueFrom:
       secretKeyRef:

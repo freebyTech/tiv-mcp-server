@@ -17,4 +17,6 @@ All notable changes to this project are recorded here. The format follows
 - Read-only tools, each a pass-through to one trackItsValue API endpoint that returns the API's JSON unchanged: `list_budgets`, `get_budget`, `list_accounts`, `get_accounts_overview`, `get_user_status`, `get_total_wealth_outlook` and `export_data`.
 - `ITivApiClient`, the one client tools use to call the trackItsValue API as the signed-in user.
 - Refusals from the API (401, 402, 403, 404, 429 and server faults) are returned as clear tool errors that carry the API's own reason, without leaking server detail.
+- Summary tools `get_budget_summary` and `get_accounts_summary`: each gets the API's JSON, hands it unchanged to the trackItsValue agent API and returns the short text summary it writes.
+- `ITivAgentApiClient`, the one client tools use to call the trackItsValue agent API as the signed-in user, and the required `MCPAPP__TIVAGENTAPIBASEURL` setting.
 - Dockerfile (runs unit tests during the image build), Jenkinsfile and Helm chart.

@@ -70,6 +70,7 @@ public class Startup
     }
 
     Log.Information($"MCP tools will call the trackItsValue API at '{mcpAppOptions.TivApiBaseUrl}'");
+    Log.Information($"MCP tools will call the trackItsValue agent API at '{mcpAppOptions.TivAgentApiBaseUrl}'");
     Log.Information($"MCP server will be validating against '{mcpAppOptions.StsAuthority}' for audience '{mcpAppOptions.StsAudience}'");
 
     // The server is an OAuth protected resource. Incoming bearer tokens are validated as JWTs
@@ -120,6 +121,8 @@ public class Startup
     // The one client every tool uses to reach the trackItsValue API, as the signed-in user.
     services.AddHttpClient(TivApiClient.HttpClientName);
     services.AddScoped<ITivApiClient, TivApiClient>();
+    services.AddHttpClient(TivAgentApiClient.HttpClientName);
+    services.AddScoped<ITivAgentApiClient, TivAgentApiClient>();
 
     services.AddSingleton(new ServerInfo(_appName, _fullVersion));
 
@@ -135,7 +138,8 @@ public class Startup
       .WithTools<BudgetTools>()
       .WithTools<AccountTools>()
       .WithTools<UserTools>()
-      .WithTools<ExportTools>();
+      .WithTools<ExportTools>()
+      .WithTools<SummaryTools>();
   }
 
   /// <summary>

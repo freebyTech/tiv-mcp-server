@@ -104,6 +104,19 @@ public class TivApiErrorMapperTests
   }
 
   [Fact]
+  public void The_agent_apis_detail_is_read_as_the_reason()
+  {
+    Assert.Equal("Unknown tool 'x'.", TivApiErrorMapper.ExtractMessage("""{"detail":"Unknown tool 'x'."}"""));
+  }
+
+  [Fact]
+  public void A_detail_that_is_a_list_of_validation_errors_is_not_passed_on()
+  {
+    // The agent API answers a malformed request with a list of field errors, which is not a sentence for a person.
+    Assert.Null(TivApiErrorMapper.ExtractMessage("""{"detail":[{"loc":["body","budget"],"msg":"Field required"}]}"""));
+  }
+
+  [Fact]
   public void An_overlong_reason_is_not_passed_on()
   {
     Assert.Null(TivApiErrorMapper.ExtractMessage(new string('x', 2000)));
