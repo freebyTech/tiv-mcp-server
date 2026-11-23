@@ -21,4 +21,6 @@ All notable changes to this project are recorded here. The format follows
 - `ITivAgentApiClient`, the one client tools use to call the trackItsValue agent API as the signed-in user, and the required `MCPAPP__TIVAGENTAPIBASEURL` setting.
 - Budget editing tools that mirror the agent API's tools by name and arguments: `add_actual`, `update_actual`, `delete_actual`, `add_item`, `update_item`, `delete_item`, `add_category`, `update_category`, `delete_category`, `move_budget`, `update_estimates`, `rectify_item`, `rectify_category`, `rectify_budget` and the read-only `get_available_accounts`. The agent API applies the change and the trackItsValue API saves it; nothing is saved when either refuses.
 - `includeTemplates` option on `get_budget_summary`, to list the category and item templates before adding one.
+- When the API rejects a request as invalid (400), the tool error now names the fields and what is wrong with them.
+- `get_accounts_summary` asks the agent API to leave out the template names and ids, roughly halving the summary.
 - Dockerfile (runs unit tests during the image build), Jenkinsfile and Helm chart.

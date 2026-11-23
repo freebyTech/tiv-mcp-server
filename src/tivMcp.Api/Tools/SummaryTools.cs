@@ -53,7 +53,9 @@ public sealed class SummaryTools
     var budgetJson = await _tivApi.GetJsonAsync($"budgeting/budgets/{Uri.EscapeDataString(description)}/{year}/{month}", cancellationToken: cancellationToken);
     var templatesJson = includeTemplates ? await _tivApi.GetJsonAsync("budgeting/templates", cancellationToken: cancellationToken) : null;
 
-    return await Summarize("budget-agent/summarize-budget", "budget", budgetJson, templatesJson, cancellationToken);
+    var templates = string.IsNullOrWhiteSpace(templatesJson) ? string.Empty : $",\"budget-templates\":{templatesJson}";
+
+    return await Summarize("budget-agent/summarize-budget", "budget", budgetJson, templates, cancellationToken);
   }
 
   /// <summary>
@@ -76,22 +78,24 @@ public sealed class SummaryTools
 
     var accountsJson = await _tivApi.GetJsonAsync($"accounting/accounts/all/{year}/{month}", cancellationToken: cancellationToken);
 
-    return await Summarize("budget-agent/summarize-accounts", "accounts", accountsJson, null, cancellationToken);
+    // The template name and id on every account, category and transaction are close to half of
+    // the summary and are only of use for creating account transactions, which no tool here does.
+    return await Summarize("budget-agent/summarize-accounts", "accounts", accountsJson, ",\"include_templates\":false", cancellationToken);
   }
 
   /// <summary>
   /// Sends the API's JSON, unchanged, to an agent API summarize route under the given property
-  /// name and returns the summary as text. Budget templates, when given, go along unchanged too.
+  /// name and returns the summary as text. <paramref name="more"/> is written after it as it is:
+  /// further properties of the request, each starting with a comma, or nothing.
   /// </summary>
-  private async Task<string> Summarize(string agentPath, string propertyName, string json, string? templatesJson, CancellationToken cancellationToken)
+  private async Task<string> Summarize(string agentPath, string propertyName, string json, string more, CancellationToken cancellationToken)
   {
     if (string.IsNullOrWhiteSpace(json))
     {
       throw new McpException("trackItsValue returned nothing to summarize.");
     }
 
-    var templates = string.IsNullOrWhiteSpace(templatesJson) ? string.Empty : $",\"budget-templates\":{templatesJson}";
-    var response = await _tivAgentApi.PostJsonAsync(agentPath, $"{{\"{propertyName}\":{json}{templates}}}", cancellationToken);
+    var response = await _tivAgentApi.PostJsonAsync(agentPath, $"{{\"{propertyName}\":{json}{more}}}", cancellationToken);
 
     SummaryResult? result;
     try

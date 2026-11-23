@@ -104,6 +104,47 @@ public class TivApiErrorMapperTests
   }
 
   [Fact]
+  public void A_request_that_failed_validation_says_which_field_and_why()
+  {
+    const string body =
+      """{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.","status":400,"errors":{"BudgetCategories[2].BudgetItems[0].BudgetActuals[1].Attachments":["The Attachments field is required."]},"traceId":"00-abc"}""";
+
+    Assert.Equal(
+      "trackItsValue could not process this request (status 400): BudgetCategories[2].BudgetItems[0].BudgetActuals[1].Attachments: The Attachments field is required.",
+      TivApiErrorMapper.Describe(400, body)
+    );
+  }
+
+  [Fact]
+  public void Only_the_first_few_validation_errors_are_passed_on()
+  {
+    const string body = """{"errors":{"A":["a1","a2"],"B":["b1"],"":["c1"],"D":["d1"]}}""";
+
+    Assert.Equal("A: a1 A: a2 B: b1 (and 2 more)", TivApiErrorMapper.ExtractMessage(body));
+  }
+
+  [Fact]
+  public void Long_validation_errors_are_cut_short_rather_than_dropped()
+  {
+    var body = "{\"errors\":{\"Field\":[\"" + new string('x', 900) + "\"]}}";
+
+    var message = TivApiErrorMapper.ExtractMessage(body);
+
+    Assert.NotNull(message);
+    Assert.EndsWith("...", message);
+    Assert.True(message.Length <= 400);
+  }
+
+  [Theory]
+  [InlineData("""{"errors":"oops"}""")]
+  [InlineData("""{"errors":{}}""")]
+  [InlineData("""{"errors":{"A":"not a list"}}""")]
+  public void Errors_in_an_unexpected_form_are_ignored(string body)
+  {
+    Assert.Null(TivApiErrorMapper.ExtractMessage(body));
+  }
+
+  [Fact]
   public void The_agent_apis_detail_is_read_as_the_reason()
   {
     Assert.Equal("Unknown tool 'x'.", TivApiErrorMapper.ExtractMessage("""{"detail":"Unknown tool 'x'."}"""));
