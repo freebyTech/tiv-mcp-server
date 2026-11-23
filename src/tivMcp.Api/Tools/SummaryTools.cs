@@ -64,6 +64,7 @@ public sealed class SummaryTools
   [McpServerTool(Name = "get_accounts_summary", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
   [Description(
     "Get a short text summary of all of the signed-in user's accounts for one month: each account with its balances and the month's transactions. "
+      + "Closed accounts that were at $0.00 all month with no transactions are left out and only counted in the last line; open accounts are always listed. "
       + "Prefer this over get_accounts_overview for everyday questions about balances; it is far smaller. "
       + "Use get_accounts_overview only when the full detail of every field is needed."
   )]
@@ -78,9 +79,10 @@ public sealed class SummaryTools
 
     var accountsJson = await _tivApi.GetJsonAsync($"accounting/accounts/all/{year}/{month}", cancellationToken: cancellationToken);
 
-    // The template name and id on every account, category and transaction are close to half of
-    // the summary and are only of use for creating account transactions, which no tool here does.
-    return await Summarize("budget-agent/summarize-accounts", "accounts", accountsJson, ",\"include_templates\":false", cancellationToken);
+    // The short form. The template name and id on every account, category and transaction are
+    // only of use for creating account transactions, which no tool here does. Compact leaves out
+    // closed accounts that sat at $0.00 all month and writes an unchanged fund on one line.
+    return await Summarize("budget-agent/summarize-accounts", "accounts", accountsJson, ",\"include_templates\":false,\"compact\":true", cancellationToken);
   }
 
   /// <summary>
