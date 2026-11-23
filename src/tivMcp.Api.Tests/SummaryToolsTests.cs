@@ -93,7 +93,7 @@ public class SummaryToolsTests
     Assert.Equal("accounting/accounts/all/2026/11", Assert.Single(_api.Calls).Path);
     var agentCall = Assert.Single(_agentApi.Calls);
     Assert.Equal("budget-agent/summarize-accounts", agentCall.Path);
-    Assert.Equal($$"""{"accounts":{{AccountsJson}},"include_templates":false}""", agentCall.Body);
+    Assert.Equal($$"""{"accounts":{{AccountsJson}},"include_templates":false,"compact":true}""", agentCall.Body);
     Assert.Equal("Accounts Overview: 2026/11", result);
   }
 
