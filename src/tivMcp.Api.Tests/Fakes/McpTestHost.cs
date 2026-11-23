@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using tivMcp.Api.Services;
 
 namespace tivMcp.Api.Tests.Fakes;
 
@@ -23,6 +24,7 @@ internal sealed class McpTestHost : IAsyncDisposable
   public const string Authority = "https://auth.example.test/";
   public const string Audience = "https://mcp.example.test/mcp";
   public const string TivApiBaseUrl = "https://api.example.test/tiv";
+  public const string TivAgentApiBaseUrl = "https://agent.example.test/agent";
 
   private static readonly RsaSecurityKey SigningKey = new(RSA.Create(2048)) { KeyId = "test-key" };
 
@@ -36,7 +38,9 @@ internal sealed class McpTestHost : IAsyncDisposable
     Client = app.GetTestClient();
   }
 
-  public static async Task<McpTestHost> StartAsync()
+  /// <param name="tivApi">Stands in for the trackItsValue API; when omitted, any call to the API fails the test.</param>
+  /// <param name="tivAgentApi">Stands in for the trackItsValue agent API; when omitted, any call to it fails the test.</param>
+  public static async Task<McpTestHost> StartAsync(HttpMessageHandler? tivApi = null, HttpMessageHandler? tivAgentApi = null)
   {
     var builder = WebApplication.CreateBuilder();
     builder.WebHost.UseTestServer();
@@ -44,6 +48,7 @@ internal sealed class McpTestHost : IAsyncDisposable
       new Dictionary<string, string?>
       {
         ["MCPAPP:TIVAPIBASEURL"] = TivApiBaseUrl,
+        ["MCPAPP:TIVAGENTAPIBASEURL"] = TivAgentApiBaseUrl,
         ["MCPAPP:STSAUTHORITY"] = Authority,
         ["MCPAPP:STSAUDIENCE"] = Audience,
       }
@@ -59,6 +64,12 @@ internal sealed class McpTestHost : IAsyncDisposable
       JwtBearerDefaults.AuthenticationScheme,
       options => options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(openIdConfiguration)
     );
+
+    // No test ever reaches a real API: outbound calls go to the stand-in.
+    var tivApiHandler = tivApi ?? new FakeTivApi(_ => throw new InvalidOperationException("This test did not expect a call to the trackItsValue API."));
+    builder.Services.AddHttpClient(TivApiClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => tivApiHandler);
+    var tivAgentApiHandler = tivAgentApi ?? new FakeTivApi(_ => throw new InvalidOperationException("This test did not expect a call to the trackItsValue agent API."));
+    builder.Services.AddHttpClient(TivAgentApiClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => tivAgentApiHandler);
 
     var app = builder.Build();
     startup.ConfigureApplication(app);

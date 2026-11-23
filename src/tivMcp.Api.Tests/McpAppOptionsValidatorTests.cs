@@ -12,6 +12,7 @@ public class McpAppOptionsValidatorTests
     new()
     {
       TivApiBaseUrl = "http://localhost:5000/tiv",
+      TivAgentApiBaseUrl = "http://localhost:8000",
       StsAuthority = "https://example.auth0.com/",
       StsAudience = "https://mcp.example.test/mcp",
     };
@@ -49,8 +50,9 @@ public class McpAppOptionsValidatorTests
   {
     var errors = McpAppOptionsValidator.Validate(new McpAppOptions());
 
-    Assert.Equal(3, errors.Count);
+    Assert.Equal(4, errors.Count);
     Assert.Contains(errors, e => e.Contains("MCPAPP__TIVAPIBASEURL"));
+    Assert.Contains(errors, e => e.Contains("MCPAPP__TIVAGENTAPIBASEURL"));
     Assert.Contains(errors, e => e.Contains("MCPAPP__STSAUTHORITY"));
     Assert.Contains(errors, e => e.Contains("MCPAPP__STSAUDIENCE"));
   }
@@ -83,6 +85,20 @@ public class McpAppOptionsValidatorTests
 
     Assert.Single(errors);
     Assert.Contains("MCPAPP__TIVAPIBASEURL must be an absolute http or https URL", errors[0]);
+  }
+
+  [Theory]
+  [InlineData(null, "MCPAPP__TIVAGENTAPIBASEURL is not set")]
+  [InlineData("agent:8000", "MCPAPP__TIVAGENTAPIBASEURL must be an absolute http or https URL")]
+  public void Agent_api_base_url_must_be_set_to_an_absolute_http_url(string? value, string expected)
+  {
+    var options = ValidOptions();
+    options.TivAgentApiBaseUrl = value;
+
+    var errors = McpAppOptionsValidator.Validate(options);
+
+    Assert.Single(errors);
+    Assert.Contains(expected, errors[0]);
   }
 
   [Fact]
