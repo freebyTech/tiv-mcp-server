@@ -26,6 +26,7 @@ All configuration comes from environment variables. Every setting is required; t
 | Variable                | Purpose                                                           |
 | ----------------------- | ----------------------------------------------------------------- |
 | `MCPAPP__TIVAPIBASEURL` | Base URL of the trackItsValue API that tool calls are passed to   |
+| `MCPAPP__TIVAGENTAPIBASEURL` | Base URL of the trackItsValue agent API, which writes the compact summaries |
 | `MCPAPP__STSAUTHORITY`  | OAuth authorization server (Auth0 tenant URL) that issues the tokens this server accepts |
 | `MCPAPP__STSAUDIENCE`   | This server's own public URL including `/mcp`. Tokens must be issued for it, and it is published as the OAuth resource |
 
@@ -111,19 +112,55 @@ After signing in, run the `get_server_info` tool to confirm the connection.
 
 ## Tools
 
-Every tool is read-only. Each one calls a single trackItsValue API endpoint as the signed-in
-user and returns the API's JSON unchanged.
+Every tool runs as the signed-in user. This server is a pass-through to two services that
+each keep their own job: the trackItsValue API owns the data and decides what a user may do,
+and the trackItsValue agent API owns the conversion between the API's JSON and the compact form
+an assistant works with. No budget rules live here.
+
+### Reading
+
+Most read tools call a single trackItsValue API endpoint and return its JSON unchanged. The two
+summary tools get the same JSON, hand it unchanged to the agent API, and return the short text
+summary it writes.
 
 | Tool                       | API endpoint                                      | Description                                                                 |
 | -------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
 | `get_server_info`          | (none)                                            | Name and version of the running MCP server                                  |
 | `list_budgets`             | `GET budgeting/budgets/list/{count}`              | The user's most recent monthly budgets, newest first                        |
 | `get_budget`               | `GET budgeting/budgets/{name}/{year}/{month}`     | One month's budget: totals, categories, items and actuals                   |
+| `get_budget_summary`       | the same, then agent `POST budget-agent/summarize-budget` | One month's budget as a short text summary; far smaller than `get_budget` |
 | `list_accounts`            | `GET accounting/accounts/all`                     | The user's accounts                                                         |
 | `get_accounts_overview`    | `GET accounting/accounts/all/{year}/{month}`      | All accounts for one month, with balances and that month's transactions     |
+| `get_accounts_summary`     | the same, then agent `POST budget-agent/summarize-accounts` | All accounts for one month as a short text summary; far smaller than `get_accounts_overview` |
 | `get_user_status`          | `GET user/status`                                 | The user's level, experience points and counts of budgets and accounts      |
 | `get_total_wealth_outlook` | `GET dashboards/total-wealth?range=`              | Wealth over time, one point per closed month                                |
-| `export_data`              | `GET export`                                      | A complete copy of the user's data as JSON (the export's `data.json`)       |
+
+### Changing a budget
+
+Each of these mirrors a tool of the agent API, with the same name and arguments, plus the year,
+month and budget name that say which budget to work on. The server gets the budget, the month's
+accounts and the budget templates from the API, has the agent API apply the tool
+(`POST budget-agent/apply-tool`), and saves the edited budget with `PUT budgeting/budgets`, the
+same call the website makes on Save. If the tool cannot do what was asked, or either service
+refuses, nothing is saved. These tools need a connection that was granted `data:write`.
+
+| Tool                     | Description                                                                |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `add_actual`             | Record a transaction against a budget item                                 |
+| `update_actual`          | Change a transaction's amount, description or date                         |
+| `delete_actual`          | Delete a transaction                                                       |
+| `add_item`               | Add a budget item to a category                                            |
+| `update_item`            | Change an item's budgeted amount or name                                   |
+| `delete_item`            | Delete an item and its transactions                                        |
+| `add_category`           | Add a category                                                             |
+| `update_category`        | Rename a category                                                          |
+| `delete_category`        | Delete a category, its items and their transactions                        |
+| `move_budget`            | Move budgeted amount from one item to another                              |
+| `update_estimates`       | Set the month's estimated income and spending                              |
+| `rectify_item`           | Set an item's budgeted amount to what was spent                            |
+| `rectify_category`       | The same for every item in a category                                      |
+| `rectify_budget`         | The same for every item in the budget                                      |
+| `get_available_accounts` | List the accounts and account categories a transaction can be linked to (changes nothing) |
 
 What a user may see is decided by the trackItsValue API, not by this server. When the API
 refuses a call (not signed in, a feature the user's level has not unlocked, a plan limit, or a

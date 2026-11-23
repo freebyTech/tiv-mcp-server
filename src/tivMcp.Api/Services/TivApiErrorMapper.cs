@@ -6,7 +6,7 @@ namespace tivMcp.Api.Services;
 /// Turns a failed trackItsValue API call into one sentence an assistant can show the user. The
 /// API stays the gatekeeper: nothing here decides whether a call is allowed, it only explains the
 /// API's answer. Where the API gave a reason (its usual <c>{"StatusCode":403,"Message":"..."}</c>
-/// body) that reason is passed on as written.
+/// body, or the agent API's <c>{"detail":"..."}</c>) that reason is passed on as written.
 /// </summary>
 public static class TivApiErrorMapper
 {
@@ -50,8 +50,9 @@ public static class TivApiErrorMapper
   private static string WithReason(string sentence, string? reason) => reason != null ? $"{sentence}: {reason}" : $"{sentence}.";
 
   /// <summary>
-  /// Pulls the human-readable message out of an API error body: the Message property of a JSON
-  /// object, a bare JSON string, or short plain text. Returns null when there is nothing usable.
+  /// Pulls the human-readable message out of an API error body: the Message (or, from the agent
+  /// API, detail) property of a JSON object, a bare JSON string, or short plain text. Returns null
+  /// when there is nothing usable.
   /// </summary>
   internal static string? ExtractMessage(string? body)
   {
@@ -77,7 +78,8 @@ public static class TivApiErrorMapper
         {
           foreach (var property in root.EnumerateObject())
           {
-            if (property.Value.ValueKind == JsonValueKind.String && string.Equals(property.Name, "message", StringComparison.OrdinalIgnoreCase))
+            var isMessage = string.Equals(property.Name, "message", StringComparison.OrdinalIgnoreCase) || string.Equals(property.Name, "detail", StringComparison.OrdinalIgnoreCase);
+            if (property.Value.ValueKind == JsonValueKind.String && isMessage)
             {
               message = property.Value.GetString();
               break;

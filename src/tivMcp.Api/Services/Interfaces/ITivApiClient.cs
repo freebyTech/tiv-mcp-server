@@ -18,10 +18,11 @@ public interface ITivApiClient
   Task<string> GetJsonAsync(string path, IReadOnlyDictionary<string, string>? query = null, CancellationToken cancellationToken = default);
 
   /// <summary>
-  /// Sends a GET and returns the raw response bytes, for endpoints that answer with a file.
+  /// Sends a PUT with a JSON body and returns the response body exactly as the API wrote it.
   /// </summary>
-  /// <param name="path">The path below the API base URL.</param>
+  /// <param name="path">The path below the API base URL, for example "budgeting/budgets".</param>
+  /// <param name="jsonBody">The request body, already JSON.</param>
   /// <param name="cancellationToken">Cancels the call.</param>
   /// <exception cref="ModelContextProtocol.McpException">The API refused the call or could not be reached.</exception>
-  Task<byte[]> GetBytesAsync(string path, CancellationToken cancellationToken = default);
+  Task<string> PutJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default);
 }

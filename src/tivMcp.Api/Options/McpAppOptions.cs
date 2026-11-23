@@ -17,6 +17,13 @@ public class McpAppOptions
   public string TivApiBaseUrl { get; set; }
 
   /// <summary>
+  /// The base URL of the trackItsValue agent API, which turns the API's full budget and account
+  /// JSON into the compact form an assistant reads, pulled from the environment variable
+  /// MCPAPP__TIVAGENTAPIBASEURL.
+  /// </summary>
+  public string TivAgentApiBaseUrl { get; set; }
+
+  /// <summary>
   /// The Authority for the Security Token Service, pulled from the environment variable
   /// MCPAPP__STSAUTHORITY.
   /// </summary>

@@ -10,19 +10,25 @@ internal sealed class FakeTivApiClient : ITivApiClient
 {
   public string JsonToReturn { get; set; } = "{}";
 
-  public byte[] BytesToReturn { get; set; } = [];
+  /// <summary>Answers for particular paths; any other path gets <see cref="JsonToReturn"/>.</summary>
+  public Dictionary<string, string> JsonByPath { get; } = [];
+
+  public List<(string Path, string Body)> Puts { get; } = [];
 
   public List<(string Path, IReadOnlyDictionary<string, string>? Query)> Calls { get; } = [];
 
   public Task<string> GetJsonAsync(string path, IReadOnlyDictionary<string, string>? query = null, CancellationToken cancellationToken = default)
   {
-    Calls.Add((path, query));
-    return Task.FromResult(JsonToReturn);
+    lock (Calls)
+    {
+      Calls.Add((path, query));
+    }
+    return Task.FromResult(JsonByPath.GetValueOrDefault(path, JsonToReturn));
   }
 
-  public Task<byte[]> GetBytesAsync(string path, CancellationToken cancellationToken = default)
+  public Task<string> PutJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default)
   {
-    Calls.Add((path, null));
-    return Task.FromResult(BytesToReturn);
+    Puts.Add((path, jsonBody));
+    return Task.FromResult(jsonBody);
   }
 }

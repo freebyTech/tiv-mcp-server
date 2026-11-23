@@ -68,15 +68,36 @@ public class TivApiClientTests
   }
 
   [Fact]
-  public async Task GetBytes_returns_the_raw_bytes()
+  public async Task Put_sends_the_body_as_given_to_the_path_as_the_signed_in_user()
   {
-    byte[] bytes = [0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF];
-    var api = new FakeTivApi(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+    const string body = """{"id":"b-1", "note":"café","amount":55.90}""";
+    string? sent = null;
+    string? contentType = null;
+    var api = new FakeTivApi(request =>
+    {
+      sent = request.Content!.ReadAsStringAsync().Result;
+      contentType = request.Content.Headers.ContentType?.MediaType;
+      return FakeTivApi.Json("""{"saved":true}""");
+    });
 
-    var result = await Client(api).GetBytesAsync("export");
+    var result = await Client(api, "abc.def.ghi").PutJsonAsync("budgeting/budgets", body);
 
-    Assert.Equal(bytes, result);
-    Assert.Equal("Bearer", api.SingleRequest.Headers.Authorization!.Scheme);
+    Assert.Equal(HttpMethod.Put, api.SingleRequest.Method);
+    Assert.Equal("https://api.example.test/tiv/budgeting/budgets", api.SingleRequest.RequestUri!.AbsoluteUri);
+    Assert.Equal("abc.def.ghi", api.SingleRequest.Headers.Authorization!.Parameter);
+    Assert.Equal(body, sent);
+    Assert.Equal("application/json", contentType);
+    Assert.Equal("""{"saved":true}""", result);
+  }
+
+  [Fact]
+  public async Task A_refused_put_becomes_a_tool_error_with_the_apis_reason()
+  {
+    var api = FakeTivApi.Returning("\"This budget is closed.\"", HttpStatusCode.Conflict);
+
+    var error = await Assert.ThrowsAsync<McpException>(() => Client(api).PutJsonAsync("budgeting/budgets", "{}"));
+
+    Assert.Contains("This budget is closed.", error.Message);
   }
 
   [Fact]

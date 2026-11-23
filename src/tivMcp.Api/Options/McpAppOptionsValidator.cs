@@ -20,6 +20,7 @@ public static class McpAppOptionsValidator
     }
 
     ValidateAbsoluteHttpUrl(errors, options.TivApiBaseUrl, "TIVAPIBASEURL");
+    ValidateAbsoluteHttpUrl(errors, options.TivAgentApiBaseUrl, "TIVAGENTAPIBASEURL");
     ValidateAbsoluteHttpUrl(errors, options.StsAuthority, "STSAUTHORITY");
     // The audience doubles as the OAuth resource identifier, which the MCP authorization spec
     // requires to be the server's URL.
