@@ -12,6 +12,7 @@ public static class TivApiErrorMapper
 {
   // Longer bodies are error pages or stack traces, not a message meant for a person.
   private const int LongestMessageShown = 400;
+  private const int ValidationErrorsShown = 3;
 
   /// <summary>
   /// Describes a failed call.
@@ -85,6 +86,8 @@ public static class TivApiErrorMapper
               break;
             }
           }
+
+          message ??= DescribeValidationErrors(root);
         }
       }
       catch (JsonException)
@@ -99,5 +102,50 @@ public static class TivApiErrorMapper
 
     message = message?.Trim();
     return string.IsNullOrEmpty(message) || message.Length > LongestMessageShown ? null : message;
+  }
+
+  /// <summary>
+  /// Reads the API's answer to a request that failed validation:
+  /// <c>{"errors":{"field":["what is wrong with it"]}}</c>. The first few are passed on, each with
+  /// its field, so the cause of a 400 can be seen without the API's log.
+  /// </summary>
+  private static string? DescribeValidationErrors(JsonElement root)
+  {
+    var errors = root.EnumerateObject().FirstOrDefault(property => string.Equals(property.Name, "errors", StringComparison.OrdinalIgnoreCase)).Value;
+    if (errors.ValueKind != JsonValueKind.Object)
+    {
+      return null;
+    }
+
+    var shown = new List<string>();
+    var total = 0;
+    foreach (var field in errors.EnumerateObject())
+    {
+      if (field.Value.ValueKind != JsonValueKind.Array)
+      {
+        continue;
+      }
+
+      foreach (var error in field.Value.EnumerateArray().Where(error => error.ValueKind == JsonValueKind.String))
+      {
+        total++;
+        if (shown.Count < ValidationErrorsShown)
+        {
+          shown.Add(string.IsNullOrWhiteSpace(field.Name) ? error.GetString()! : $"{field.Name}: {error.GetString()}");
+        }
+      }
+    }
+
+    if (shown.Count == 0)
+    {
+      return null;
+    }
+
+    var text = string.Join(" ", shown);
+    if (text.Length > LongestMessageShown - 30)
+    {
+      text = text[..(LongestMessageShown - 30)] + "...";
+    }
+    return total > shown.Count ? $"{text} (and {total - shown.Count} more)" : text;
   }
 }
