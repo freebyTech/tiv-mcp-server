@@ -15,11 +15,11 @@ namespace tivMcp.Api.Tests;
 /// </summary>
 public class ToolsEndToEndTests
 {
-  private static readonly string[] ExpectedTools =
+  private static readonly string[] ReadOnlyTools =
   [
-    "export_data",
     "get_accounts_overview",
     "get_accounts_summary",
+    "get_available_accounts",
     "get_budget",
     "get_budget_summary",
     "get_server_info",
@@ -28,6 +28,28 @@ public class ToolsEndToEndTests
     "list_accounts",
     "list_budgets",
   ];
+
+  // Tools that change the user's data. Assistants are told so, and may ask the user first.
+  private static readonly string[] WriteTools =
+  [
+    "add_actual",
+    "add_category",
+    "add_item",
+    "delete_actual",
+    "delete_category",
+    "delete_item",
+    "move_budget",
+    "rectify_budget",
+    "rectify_category",
+    "rectify_item",
+    "update_actual",
+    "update_category",
+    "update_estimates",
+    "update_item",
+  ];
+
+  // Write tools that only ever add something; every other write tool replaces or removes data.
+  private static readonly string[] AdditiveTools = ["add_actual", "add_category", "add_item"];
 
   private static async Task<JsonElement> Rpc(McpTestHost host, string token, string method, object? parameters = null)
   {
@@ -71,47 +93,114 @@ public class ToolsEndToEndTests
     var response = await Rpc(host, McpTestHost.CreateToken(), "tools/list");
 
     var names = response.GetProperty("result").GetProperty("tools").EnumerateArray().Select(tool => tool.GetProperty("name").GetString()).Order();
-    Assert.Equal(ExpectedTools, names);
+    Assert.Equal(ReadOnlyTools.Concat(WriteTools).Order(), names);
   }
 
   [Fact]
-  public async Task Every_tool_is_announced_to_assistants_as_read_only()
+  public async Task Each_tool_is_announced_to_assistants_as_reading_or_changing_data()
   {
-    // Phase 1 has no write tools. Assistants use these hints to decide whether to ask the user
-    // first, and a read-only connection must be able to use every tool offered.
+    // Assistants use these hints to decide whether to ask the user first, so a tool that changes
+    // data must never be announced as read-only, and one that removes or replaces data must say so.
     await using var host = await McpTestHost.StartAsync();
 
     var response = await Rpc(host, McpTestHost.CreateToken(), "tools/list");
 
     foreach (var tool in response.GetProperty("result").GetProperty("tools").EnumerateArray())
     {
+      var name = tool.GetProperty("name").GetString()!;
       var annotations = tool.GetProperty("annotations");
-      Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean(), tool.GetProperty("name").GetString());
-      Assert.False(annotations.GetProperty("destructiveHint").GetBoolean(), tool.GetProperty("name").GetString());
+      var isWrite = WriteTools.Contains(name);
+
+      Assert.Equal(!isWrite, annotations.GetProperty("readOnlyHint").GetBoolean());
+      Assert.Equal(isWrite && !AdditiveTools.Contains(name), annotations.GetProperty("destructiveHint").GetBoolean());
       Assert.False(string.IsNullOrWhiteSpace(tool.GetProperty("description").GetString()));
     }
   }
 
   [Fact]
-  public void No_tool_method_is_missing_its_read_only_marking()
+  public void Every_tool_method_is_listed_here_as_reading_or_changing_data()
   {
-    var toolMethods = typeof(Startup)
+    var toolNames = typeof(Startup)
       .Assembly.GetTypes()
       .Where(type => type.GetCustomAttribute<McpServerToolTypeAttribute>() != null)
       .SelectMany(type => type.GetMethods())
       .Select(method => method.GetCustomAttribute<McpServerToolAttribute>())
       .Where(attribute => attribute != null)
-      .ToList();
+      .Select(attribute => attribute!.Name)
+      .Order();
 
-    Assert.Equal(ExpectedTools.Length, toolMethods.Count);
-    Assert.All(
-      toolMethods,
-      attribute =>
+    Assert.Equal(ReadOnlyTools.Concat(WriteTools).Order(), toolNames);
+  }
+
+  [Fact]
+  public async Task A_write_tool_gets_the_data_has_the_agent_api_edit_it_and_saves_it_as_the_same_user()
+  {
+    const string budget = """{"id":"b-1","isNew":false,"budgetCategories":[]}""";
+    const string edited = """{"id":"b-1","isDirty":true,"budgetCategories":[{"isNew":true}]}""";
+    string? saved = null;
+    var api = new FakeTivApi(request =>
+    {
+      if (request.Method == HttpMethod.Put)
       {
-        Assert.True(attribute!.ReadOnly, attribute.Name);
-        Assert.False(attribute.Destructive, attribute.Name);
+        saved = request.Content!.ReadAsStringAsync().Result;
+        return FakeTivApi.Json(edited);
+      }
+      return FakeTivApi.Json(request.RequestUri!.AbsolutePath.EndsWith("/budgeting/templates") ? "[]" : budget);
+    });
+    string? sentToAgent = null;
+    var agentApi = new FakeTivApi(request =>
+    {
+      sentToAgent = request.Content!.ReadAsStringAsync().Result;
+      return FakeTivApi.Json("""{"success":true,"changes":[{"description":"Added 'Aldi' ($55.90) to 'Groceries'"}],"budget":""" + edited + "}");
+    });
+    await using var host = await McpTestHost.StartAsync(api, agentApi);
+    var token = McpTestHost.CreateToken();
+
+    var response = await CallTool(
+      host,
+      token,
+      "add_actual",
+      new
+      {
+        year = 2026,
+        month = 11,
+        itemDescription = "Groceries",
+        amount = 55.90,
+        description = "Aldi",
+        date = "2026-11-22",
       }
     );
+
+    Assert.False(IsError(response));
+    Assert.Equal("Saved. Added 'Aldi' ($55.90) to 'Groceries'", ResultText(response));
+
+    Assert.Equal($"{McpTestHost.TivAgentApiBaseUrl}/budget-agent/apply-tool", agentApi.SingleRequest.RequestUri!.AbsoluteUri);
+    var agentRequest = JsonDocument.Parse(sentToAgent!).RootElement;
+    Assert.Equal("add_actual", agentRequest.GetProperty("tool").GetString());
+    Assert.Equal("Groceries", agentRequest.GetProperty("arguments").GetProperty("item_description").GetString());
+    Assert.Equal(55.90m, agentRequest.GetProperty("arguments").GetProperty("amount").GetDecimal());
+
+    var put = Assert.Single(api.Requests, request => request.Method == HttpMethod.Put);
+    Assert.Equal($"{McpTestHost.TivApiBaseUrl}/budgeting/budgets", put.RequestUri!.AbsoluteUri);
+    Assert.Equal(edited, saved);
+    Assert.All(api.Requests.Append(agentApi.SingleRequest), request => Assert.Equal(token, request.Headers.Authorization!.Parameter));
+  }
+
+  [Fact]
+  public async Task When_the_api_refuses_the_save_the_user_is_told_why()
+  {
+    var api = new FakeTivApi(request =>
+      request.Method == HttpMethod.Put
+        ? FakeTivApi.Json("\"This budget is closed and cannot be changed.\"", HttpStatusCode.Conflict)
+        : FakeTivApi.Json(request.RequestUri!.AbsolutePath.EndsWith("/budgeting/templates") ? "[]" : """{"id":"b-1","isNew":false}""")
+    );
+    var agentApi = FakeTivApi.Returning("""{"success":true,"changes":[],"budget":{"id":"b-1"}}""");
+    await using var host = await McpTestHost.StartAsync(api, agentApi);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "rectify_budget", new { year = 2026, month = 11 });
+
+    Assert.True(IsError(response));
+    Assert.Contains("This budget is closed and cannot be changed.", ResultText(response));
   }
 
   [Fact]

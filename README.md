@@ -112,10 +112,16 @@ After signing in, run the `get_server_info` tool to confirm the connection.
 
 ## Tools
 
-Every tool is read-only and runs as the signed-in user. Most call a single trackItsValue API
-endpoint and return the API's JSON unchanged. The two summary tools get the same JSON, hand it
-unchanged to the trackItsValue agent API, and return the short text summary it writes; that
-conversion lives in the agent API, not in this server.
+Every tool runs as the signed-in user. This server is a pass-through to two services that
+each keep their own job: the trackItsValue API owns the data and decides what a user may do,
+and the trackItsValue agent API owns the conversion between the API's JSON and the compact form
+an assistant works with. No budget rules live here.
+
+### Reading
+
+Most read tools call a single trackItsValue API endpoint and return its JSON unchanged. The two
+summary tools get the same JSON, hand it unchanged to the agent API, and return the short text
+summary it writes.
 
 | Tool                       | API endpoint                                      | Description                                                                 |
 | -------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -128,7 +134,33 @@ conversion lives in the agent API, not in this server.
 | `get_accounts_summary`     | the same, then agent `POST budget-agent/summarize-accounts` | All accounts for one month as a short text summary; far smaller than `get_accounts_overview` |
 | `get_user_status`          | `GET user/status`                                 | The user's level, experience points and counts of budgets and accounts      |
 | `get_total_wealth_outlook` | `GET dashboards/total-wealth?range=`              | Wealth over time, one point per closed month                                |
-| `export_data`              | `GET export`                                      | A complete copy of the user's data as JSON (the export's `data.json`)       |
+
+### Changing a budget
+
+Each of these mirrors a tool of the agent API, with the same name and arguments, plus the year,
+month and budget name that say which budget to work on. The server gets the budget, the month's
+accounts and the budget templates from the API, has the agent API apply the tool
+(`POST budget-agent/apply-tool`), and saves the edited budget with `PUT budgeting/budgets`, the
+same call the website makes on Save. If the tool cannot do what was asked, or either service
+refuses, nothing is saved. These tools need a connection that was granted `data:write`.
+
+| Tool                     | Description                                                                |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `add_actual`             | Record a transaction against a budget item                                 |
+| `update_actual`          | Change a transaction's amount, description or date                         |
+| `delete_actual`          | Delete a transaction                                                       |
+| `add_item`               | Add a budget item to a category                                            |
+| `update_item`            | Change an item's budgeted amount or name                                   |
+| `delete_item`            | Delete an item and its transactions                                        |
+| `add_category`           | Add a category                                                             |
+| `update_category`        | Rename a category                                                          |
+| `delete_category`        | Delete a category, its items and their transactions                        |
+| `move_budget`            | Move budgeted amount from one item to another                              |
+| `update_estimates`       | Set the month's estimated income and spending                              |
+| `rectify_item`           | Set an item's budgeted amount to what was spent                            |
+| `rectify_category`       | The same for every item in a category                                      |
+| `rectify_budget`         | The same for every item in the budget                                      |
+| `get_available_accounts` | List the accounts and account categories a transaction can be linked to (changes nothing) |
 
 What a user may see is decided by the trackItsValue API, not by this server. When the API
 refuses a call (not signed in, a feature the user's level has not unlocked, a plan limit, or a

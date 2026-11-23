@@ -33,18 +33,28 @@ public class TivApiClient : ITivApiClient
   /// <inheritdoc />
   public async Task<string> GetJsonAsync(string path, IReadOnlyDictionary<string, string>? query = null, CancellationToken cancellationToken = default)
   {
-    var response = await ExecuteGetAsync(path, query, "application/json", cancellationToken);
-    return response.Content ?? string.Empty;
+    var request = new RestRequest(path);
+    if (query != null)
+    {
+      foreach (var parameter in query)
+      {
+        request.AddQueryParameter(parameter.Key, parameter.Value);
+      }
+    }
+
+    return await ExecuteAsync(request, Method.Get, cancellationToken);
   }
 
   /// <inheritdoc />
-  public async Task<byte[]> GetBytesAsync(string path, CancellationToken cancellationToken = default)
+  public async Task<string> PutJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default)
   {
-    var response = await ExecuteGetAsync(path, null, "*/*", cancellationToken);
-    return response.RawBytes ?? [];
+    var request = new RestRequest(path);
+    request.AddStringBody(jsonBody, ContentType.Json);
+
+    return await ExecuteAsync(request, Method.Put, cancellationToken);
   }
 
-  private async Task<RestResponse> ExecuteGetAsync(string path, IReadOnlyDictionary<string, string>? query, string accept, CancellationToken cancellationToken)
+  private async Task<string> ExecuteAsync(RestRequest request, Method method, CancellationToken cancellationToken)
   {
     string token;
     try
@@ -56,18 +66,10 @@ public class TivApiClient : ITivApiClient
       throw new McpException(TivApiErrorMapper.Describe(401, null));
     }
 
-    var request = new RestRequest(path);
     request.AddHeader("Authorization", $"Bearer {token}");
-    request.AddHeader("Accept", accept);
-    if (query != null)
-    {
-      foreach (var parameter in query)
-      {
-        request.AddQueryParameter(parameter.Key, parameter.Value);
-      }
-    }
+    request.AddHeader("Accept", "application/json");
 
-    var response = await _restClient.ExecuteGetAsync(request, cancellationToken);
+    var response = await _restClient.ExecuteAsync(request, method, cancellationToken);
     cancellationToken.ThrowIfCancellationRequested();
 
     if (!response.IsSuccessful)
@@ -75,6 +77,6 @@ public class TivApiClient : ITivApiClient
       throw new McpException(TivApiErrorMapper.Describe((int)response.StatusCode, response.Content));
     }
 
-    return response;
+    return response.Content ?? string.Empty;
   }
 }

@@ -54,6 +54,43 @@ public static class ToolArguments
     return trimmed;
   }
 
+  /// <summary>Checks a piece of text was given, and returns it trimmed.</summary>
+  public static string RequireText(string name, string? value)
+  {
+    var trimmed = value?.Trim();
+    if (string.IsNullOrEmpty(trimmed))
+    {
+      throw new McpException($"{name} is required.");
+    }
+    if (trimmed.Length > 500)
+    {
+      throw new McpException($"{name} must be at most 500 characters.");
+    }
+    return trimmed;
+  }
+
+  /// <summary>Trims optional text, treating blank as not given.</summary>
+  public static string? OptionalText(string name, string? value)
+  {
+    return string.IsNullOrWhiteSpace(value) ? null : RequireText(name, value);
+  }
+
+  /// <summary>Checks a date is a real calendar date written as YYYY-MM-DD, and returns it in that form.</summary>
+  public static string RequireDate(string name, string? value)
+  {
+    if (!DateOnly.TryParseExact(value?.Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
+    {
+      throw new McpException($"{name} must be a date written as YYYY-MM-DD, for example 2026-03-15.");
+    }
+    return date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+  }
+
+  /// <summary>Checks an optional date, treating blank as not given.</summary>
+  public static string? OptionalDate(string name, string? value)
+  {
+    return string.IsNullOrWhiteSpace(value) ? null : RequireDate(name, value);
+  }
+
   /// <summary>Checks a value is one of a fixed set, ignoring case, and returns the listed spelling.</summary>
   public static string RequireOneOf(string name, string? value, params string[] allowed)
   {

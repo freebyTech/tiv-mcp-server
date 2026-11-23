@@ -39,6 +39,19 @@ public class SummaryToolsTests
   }
 
   [Fact]
+  public async Task GetBudgetSummary_can_send_the_budget_templates_along_unchanged()
+  {
+    const string templates = """[{"id":"t-1","description":"Food & Essentials"}]""";
+    _api.JsonByPath["budgeting/budgets/default/2026/11"] = BudgetJson;
+    _api.JsonByPath["budgeting/templates"] = templates;
+
+    await Tools.GetBudgetSummary(2026, 11, includeTemplates: true);
+
+    Assert.Equal(["budgeting/budgets/default/2026/11", "budgeting/templates"], _api.Calls.Select(call => call.Path));
+    Assert.Equal("{\"budget\":" + BudgetJson + ",\"budget-templates\":" + templates + "}", Assert.Single(_agentApi.Calls).Body);
+  }
+
+  [Fact]
   public async Task GetBudgetSummary_asks_for_a_named_budget_as_one_path_segment()
   {
     _api.JsonToReturn = BudgetJson;

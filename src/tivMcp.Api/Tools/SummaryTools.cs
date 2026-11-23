@@ -35,12 +35,14 @@ public sealed class SummaryTools
     "Get a short text summary of one month's budget: income and spending totals, then every category and budget item with the amount budgeted and spent. "
       + "Prefer this over get_budget for everyday questions such as how much is left for an item this month; it is far smaller. "
       + "Use get_budget only when the full detail of every field is needed. "
-      + "If the user has no budget for that month the summary shows zero totals and no categories."
+      + "If the user has no budget for that month the summary shows zero totals and no categories. "
+      + "Set includeTemplates to true before adding a category or an item, to also list the category and item templates they can be based on."
   )]
   public async Task<string> GetBudgetSummary(
     [Description("The four-digit year of the budget, for example 2026.")] int year,
     [Description("The month of the budget, 1 (January) to 12 (December).")] int month,
     [Description("The budget's name. Leave empty for the user's main budget, which is named 'default'.")] string? budgetName = null,
+    [Description("True to also list the available category and item templates. Only needed before adding a category or an item.")] bool includeTemplates = false,
     CancellationToken cancellationToken = default
   )
   {
@@ -49,8 +51,9 @@ public sealed class SummaryTools
     var description = ToolArguments.BudgetDescriptionOrDefault(budgetName);
 
     var budgetJson = await _tivApi.GetJsonAsync($"budgeting/budgets/{Uri.EscapeDataString(description)}/{year}/{month}", cancellationToken: cancellationToken);
+    var templatesJson = includeTemplates ? await _tivApi.GetJsonAsync("budgeting/templates", cancellationToken: cancellationToken) : null;
 
-    return await Summarize("budget-agent/summarize-budget", "budget", budgetJson, cancellationToken);
+    return await Summarize("budget-agent/summarize-budget", "budget", budgetJson, templatesJson, cancellationToken);
   }
 
   /// <summary>
@@ -73,21 +76,22 @@ public sealed class SummaryTools
 
     var accountsJson = await _tivApi.GetJsonAsync($"accounting/accounts/all/{year}/{month}", cancellationToken: cancellationToken);
 
-    return await Summarize("budget-agent/summarize-accounts", "accounts", accountsJson, cancellationToken);
+    return await Summarize("budget-agent/summarize-accounts", "accounts", accountsJson, null, cancellationToken);
   }
 
   /// <summary>
   /// Sends the API's JSON, unchanged, to an agent API summarize route under the given property
-  /// name and returns the summary as text.
+  /// name and returns the summary as text. Budget templates, when given, go along unchanged too.
   /// </summary>
-  private async Task<string> Summarize(string agentPath, string propertyName, string json, CancellationToken cancellationToken)
+  private async Task<string> Summarize(string agentPath, string propertyName, string json, string? templatesJson, CancellationToken cancellationToken)
   {
     if (string.IsNullOrWhiteSpace(json))
     {
       throw new McpException("trackItsValue returned nothing to summarize.");
     }
 
-    var response = await _tivAgentApi.PostJsonAsync(agentPath, $"{{\"{propertyName}\":{json}}}", cancellationToken);
+    var templates = string.IsNullOrWhiteSpace(templatesJson) ? string.Empty : $",\"budget-templates\":{templatesJson}";
+    var response = await _tivAgentApi.PostJsonAsync(agentPath, $"{{\"{propertyName}\":{json}{templates}}}", cancellationToken);
 
     SummaryResult? result;
     try
