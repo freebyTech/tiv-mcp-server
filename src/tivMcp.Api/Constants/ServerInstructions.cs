@@ -1,0 +1,23 @@
+namespace tivMcp.Api.Constants;
+
+/// <summary>
+/// What an assistant is told about this server when it connects, before it has called any tool:
+/// the things that hold for every tool and so do not belong in one tool's description.
+/// </summary>
+public static class ServerInstructions
+{
+  /// <summary>
+  /// The instructions sent in the answer to the assistant's initialize request.
+  /// </summary>
+  public const string Text =
+    "This server reads and changes the signed-in user's trackItsValue budgets and accounts. "
+    + "Reading: prefer get_budget_summary and get_accounts_summary, which are far smaller than get_budget and get_accounts_overview. "
+    + "Changing a budget: a tool that succeeds answers with 'Saved.' and what changed. "
+    + "To record several transactions in one month use add_actuals, not add_actual repeatedly. "
+    + "If a month has no budget yet, create_budget makes one. "
+    + "When a tool fails: the error says which step failed and whether anything was saved. "
+    + "'Nothing was saved' means the budget is unchanged, so fixing the request or trying again cannot record anything twice. "
+    + "'The save may or may not have gone through' means the outcome is unknown: read the budget with get_budget_summary before retrying, so nothing is recorded twice. "
+    + "An error that gives 'Reference' and an eight-character id is a fault on the trackItsValue side, not a mistake in the request; tell the user that reference exactly, because it finds the failure in the service's log. "
+    + "A refusal that names a level, a plan or a permission is the user's account or this connection's access, and retrying will not change it.";
+}

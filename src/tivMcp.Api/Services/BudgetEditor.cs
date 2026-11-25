@@ -101,7 +101,7 @@ public class BudgetEditor : IBudgetEditor
     var budgetJson = await budgetTask;
     if (Read<BudgetState>(budgetJson) is not { IsNew: false })
     {
-      throw new McpException($"There is no budget for {year}-{month:00} yet. Create it in trackItsValue first.");
+      throw new McpException($"There is no budget for {year}-{month:00} yet. Use create_budget to make it.");
     }
 
     // One tool goes to the route for one, several to the route that applies them all or none.

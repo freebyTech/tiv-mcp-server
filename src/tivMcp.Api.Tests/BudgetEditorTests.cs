@@ -140,7 +140,7 @@ public class BudgetEditorTests
 
     var error = await Assert.ThrowsAsync<McpException>(() => Editor.ApplyAndSaveAsync(2026, 11, null, "add_actual", Aldi));
 
-    Assert.Equal("There is no budget for 2026-11 yet. Create it in trackItsValue first.", error.Message);
+    Assert.Equal("There is no budget for 2026-11 yet. Use create_budget to make it.", error.Message);
     Assert.Empty(_agentApi.Calls);
     Assert.Empty(_api.Puts);
   }
