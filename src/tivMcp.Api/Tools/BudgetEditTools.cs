@@ -16,7 +16,9 @@ namespace tivMcp.Api.Tools;
 [McpServerToolType]
 public sealed class BudgetEditTools
 {
-  private const string NamesHint = " Use the exact category and item names shown by get_budget_summary.";
+  // On every tool that saves: what to do when the save is in doubt.
+  private const string SaveHint = " If this fails with 'The save may or may not have gone through', check with get_budget_summary before retrying, so nothing is recorded twice.";
+  private const string NamesHint = " Use the exact category and item names shown by get_budget_summary." + SaveHint;
   private const string YearHint = "The four-digit year of the budget, for example 2026.";
   private const string MonthHint = "The month of the budget, 1 (January) to 12 (December).";
   private const string BudgetNameHint = "The budget's name. Leave empty for the user's main budget, which is named 'default'.";
@@ -39,7 +41,7 @@ public sealed class BudgetEditTools
   /// Agent API tool update_estimates.
   /// </summary>
   [McpServerTool(Name = "update_estimates", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
-  [Description("Set the budget's estimated total income and estimated total spending for the month. Both values replace the current ones.")]
+  [Description("Set the budget's estimated total income and estimated total spending for the month. Both values replace the current ones." + SaveHint)]
   public Task<string> UpdateEstimates(
     [Description(YearHint)] int year,
     [Description(MonthHint)] int month,
@@ -58,7 +60,9 @@ public sealed class BudgetEditTools
   /// Agent API tool add_category.
   /// </summary>
   [McpServerTool(Name = "add_category", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-  [Description("Add a new category to the budget. Every category is based on a category template; call get_budget_summary with includeTemplates set to true to see the template names available.")]
+  [Description(
+    "Add a new category to the budget. Every category is based on a category template; call get_budget_summary with includeTemplates set to true to see the template names available." + SaveHint
+  )]
   public Task<string> AddCategory(
     [Description(YearHint)] int year,
     [Description(MonthHint)] int month,
@@ -204,6 +208,7 @@ public sealed class BudgetEditTools
   [McpServerTool(Name = "add_actual", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
   [Description(
     "Record a transaction (an actual) against a budget item, such as a purchase or a paycheck. "
+      + "To record several in the same month use add_actuals instead: one call, one save. "
       + "For a purchase paid by credit card set isCreditWithdrawl to true. "
       + "If the item has a default account (shown as [default-acct:...] in get_budget_summary) no account ids are needed unless the user names a different card. "
       + "If the item has no default account, a credit card purchase needs accountLinkId and accountCategoryLinkId; call get_available_accounts to find them."
@@ -413,6 +418,7 @@ public sealed class BudgetEditTools
   [Description(
     "Rectify the whole budget: set every item's budgeted amount to what was actually spent on it. "
       + "Items with no spending are set to zero and overspent items are raised to match. This overwrites every budgeted amount in the month; confirm with the user first."
+      + SaveHint
   )]
   public Task<string> RectifyBudget(
     [Description(YearHint)] int year,

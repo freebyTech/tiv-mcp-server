@@ -472,4 +472,59 @@ public class ToolsEndToEndTests
 
     Assert.Equal(2, api.Requests.Select(request => request.Headers.GetValues("X-Request-Id").Single()).Distinct().Count());
   }
+
+  [Fact]
+  public async Task An_assistant_is_told_on_connecting_how_to_read_a_failure()
+  {
+    await using var host = await McpTestHost.StartAsync();
+
+    var response = await Rpc(
+      host,
+      McpTestHost.CreateToken(),
+      "initialize",
+      new
+      {
+        protocolVersion = "2025-06-18",
+        capabilities = new { },
+        clientInfo = new { name = "test", version = "1" },
+      }
+    );
+
+    var instructions = response.GetProperty("result").GetProperty("instructions").GetString();
+    Assert.Contains("'Nothing was saved' means the budget is unchanged", instructions);
+    Assert.Contains("'The save may or may not have gone through' means the outcome is unknown", instructions);
+    Assert.Contains("tell the user that reference exactly", instructions);
+    Assert.Contains("use add_actuals, not add_actual repeatedly", instructions);
+    Assert.Contains("create_budget makes one", instructions);
+  }
+
+  [Fact]
+  public async Task Every_tool_that_saves_a_budget_edit_says_what_to_do_when_the_save_is_in_doubt()
+  {
+    await using var host = await McpTestHost.StartAsync();
+
+    var response = await Rpc(host, McpTestHost.CreateToken(), "tools/list");
+
+    var descriptions = response
+      .GetProperty("result")
+      .GetProperty("tools")
+      .EnumerateArray()
+      .ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool.GetProperty("description").GetString()!);
+    // create_budget saves through a different call, which either makes the whole budget or nothing.
+    Assert.All(WriteTools.Except(["create_budget"]), name => Assert.Contains("check with get_budget_summary before retrying", descriptions[name]));
+    Assert.Contains("use add_actuals instead", descriptions["add_actual"]);
+  }
+
+  [Fact]
+  public async Task Every_tool_the_instructions_name_exists()
+  {
+    await using var host = await McpTestHost.StartAsync();
+
+    var response = await Rpc(host, McpTestHost.CreateToken(), "tools/list");
+
+    var names = response.GetProperty("result").GetProperty("tools").EnumerateArray().Select(tool => tool.GetProperty("name").GetString()!).ToHashSet();
+    var named = System.Text.RegularExpressions.Regex.Matches(tivMcp.Api.Constants.ServerInstructions.Text, "\\b[a-z]+(_[a-z]+)+\\b").Select(match => match.Value).Distinct().ToList();
+    Assert.NotEmpty(named);
+    Assert.All(named, name => Assert.Contains(name, names));
+  }
 }

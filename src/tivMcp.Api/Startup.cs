@@ -131,7 +131,11 @@ public class Startup
     services.AddSingleton(new ServerInfo(_appName, _fullVersion));
 
     services
-      .AddMcpServer()
+      .AddMcpServer(options =>
+      {
+        // What every assistant is told on connecting: which tools to prefer and how to read a failure.
+        options.ServerInstructions = ServerInstructions.Text;
+      })
       .WithHttpTransport(options =>
       {
         // Stateless: no server-to-client requests are needed, and it lets the server scale
