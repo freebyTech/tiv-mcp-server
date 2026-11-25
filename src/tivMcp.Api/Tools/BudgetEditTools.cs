@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using tivMcp.Api.Models;
 using tivMcp.Api.Services.Interfaces;
 
 namespace tivMcp.Api.Tools;
@@ -19,6 +21,9 @@ public sealed class BudgetEditTools
   private const string MonthHint = "The month of the budget, 1 (January) to 12 (December).";
   private const string BudgetNameHint = "The budget's name. Leave empty for the user's main budget, which is named 'default'.";
   private const string CategoryToNarrowHint = "The category the item is in. Only needed when two categories have an item with the same name.";
+
+  /// <summary>The most transactions add_actuals takes in one call.</summary>
+  public const int MostActualsAtOnce = 50;
 
   private readonly IBudgetEditor _budgetEditor;
 
@@ -219,19 +224,85 @@ public sealed class BudgetEditTools
     CancellationToken cancellationToken = default
   )
   {
-    var arguments = new Dictionary<string, object?>
+    var actual = new NewActual
     {
-      ["item_description"] = ToolArguments.RequireText(nameof(itemDescription), itemDescription),
-      ["amount"] = amount,
-      ["description"] = ToolArguments.RequireText(nameof(description), description),
-      ["date"] = ToolArguments.RequireDate(nameof(date), date),
-      ["category_description"] = ToolArguments.OptionalText(nameof(categoryDescription), categoryDescription),
-      ["is_credit_withdrawl"] = isCreditWithdrawl,
-      ["account_link_id"] = ToolArguments.OptionalText(nameof(accountLinkId), accountLinkId),
-      ["account_category_link_id"] = ToolArguments.OptionalText(nameof(accountCategoryLinkId), accountCategoryLinkId),
+      ItemDescription = itemDescription,
+      Amount = amount,
+      Description = description,
+      Date = date,
+      CategoryDescription = categoryDescription,
+      IsCreditWithdrawl = isCreditWithdrawl,
+      AccountLinkId = accountLinkId,
+      AccountCategoryLinkId = accountCategoryLinkId,
     };
 
-    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "add_actual", arguments, cancellationToken);
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "add_actual", AddActualArguments(actual, string.Empty), cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool add_actual, once for each transaction, applied to the budget together.
+  /// </summary>
+  [McpServerTool(Name = "add_actuals", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+  [Description(
+    "Record several transactions (actuals) in one month's budget at once, for example a pile of receipts or a statement's charges. "
+      + "Prefer this over calling add_actual repeatedly: the budget is saved once. "
+      + "Each entry has the same fields and rules as add_actual. "
+      + "All or nothing: if any entry cannot be recorded, none are, and the error says which entry and why. "
+      + "All entries go into the one budget month given; transactions of another month need their own call."
+      + NamesHint
+  )]
+  public Task<string> AddActuals(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The transactions to record, at least 1 and at most 50.")] NewActual[] actuals,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    if (actuals == null || actuals.Length == 0)
+    {
+      throw new McpException($"{nameof(actuals)} must list at least one transaction.");
+    }
+
+    if (actuals.Length > MostActualsAtOnce)
+    {
+      throw new McpException($"{nameof(actuals)} can list at most {MostActualsAtOnce} transactions, but {actuals.Length} were given. Send them in several calls.");
+    }
+
+    var calls = new List<ToolCall>(actuals.Length);
+    for (var index = 0; index < actuals.Length; index++)
+    {
+      // Entries are numbered from 1 in messages, as a person would count them.
+      var entry = $"{nameof(actuals)} entry {index + 1}";
+      if (actuals[index] == null)
+      {
+        throw new McpException($"{entry} is empty.");
+      }
+
+      calls.Add(new ToolCall("add_actual", AddActualArguments(actuals[index], entry + ": ")));
+    }
+
+    return _budgetEditor.ApplyAllAndSaveAsync(year, month, budgetName, calls, cancellationToken);
+  }
+
+  /// <summary>
+  /// Checks one transaction and returns it as the agent API's add_actual arguments.
+  /// </summary>
+  /// <param name="actual">The transaction.</param>
+  /// <param name="entry">Text put in front of an argument's name in an error, to say which of several transactions is wrong.</param>
+  private static Dictionary<string, object?> AddActualArguments(NewActual actual, string entry)
+  {
+    return new Dictionary<string, object?>
+    {
+      ["item_description"] = ToolArguments.RequireText(entry + "itemDescription", actual.ItemDescription),
+      ["amount"] = actual.Amount,
+      ["description"] = ToolArguments.RequireText(entry + "description", actual.Description),
+      ["date"] = ToolArguments.RequireDate(entry + "date", actual.Date),
+      ["category_description"] = ToolArguments.OptionalText(entry + "categoryDescription", actual.CategoryDescription),
+      ["is_credit_withdrawl"] = actual.IsCreditWithdrawl,
+      ["account_link_id"] = ToolArguments.OptionalText(entry + "accountLinkId", actual.AccountLinkId),
+      ["account_category_link_id"] = ToolArguments.OptionalText(entry + "accountCategoryLinkId", actual.AccountCategoryLinkId),
+    };
   }
 
   /// <summary>

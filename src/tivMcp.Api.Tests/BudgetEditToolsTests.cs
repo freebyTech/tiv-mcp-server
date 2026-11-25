@@ -267,4 +267,89 @@ public class BudgetEditToolsTests
     Assert.StartsWith("newDate must be a date", error.Message);
     Assert.Empty(_editor.Calls);
   }
+
+  private static Models.NewActual Entry(string item, decimal amount, string description, string date = "2026-11-22") =>
+    new()
+    {
+      ItemDescription = item,
+      Amount = amount,
+      Description = description,
+      Date = date,
+    };
+
+  [Fact]
+  public async Task AddActuals_runs_add_actual_once_for_each_entry_in_order_on_the_one_budget()
+  {
+    var card = Entry(" Restaurants ", 59m, "Parks Pizza");
+    card.IsCreditWithdrawl = true;
+    card.CategoryDescription = "Food";
+
+    await Tools.AddActuals(2026, 11, [Entry("Groceries", 55.90m, "Aldi"), card], "Rental");
+
+    Assert.Empty(_editor.Calls);
+    var batch = Assert.Single(_editor.Batches);
+    Assert.Equal((2026, 11, "Rental"), (batch.Year, batch.Month, batch.BudgetName));
+    Assert.All(batch.Calls, call => Assert.Equal("add_actual", call.Tool));
+    Assert.Equal(["Aldi", "Parks Pizza"], batch.Calls.Select(call => call.Arguments["description"]));
+    Assert.Equal(
+      new Dictionary<string, object?>
+      {
+        ["item_description"] = "Restaurants",
+        ["amount"] = 59m,
+        ["description"] = "Parks Pizza",
+        ["date"] = "2026-11-22",
+        ["category_description"] = "Food",
+        ["is_credit_withdrawl"] = true,
+        ["account_link_id"] = null,
+        ["account_category_link_id"] = null,
+      }.OrderBy(a => a.Key),
+      batch.Calls[1].Arguments.OrderBy(a => a.Key)
+    );
+  }
+
+  [Fact]
+  public async Task AddActuals_names_the_entry_that_is_wrong_and_records_none()
+  {
+    var error = await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, [Entry("Groceries", 5m, "Aldi"), Entry("Gas", 40m, "Shell", "22/11/2026")]));
+
+    Assert.StartsWith("actuals entry 2: date must be a date written as YYYY-MM-DD", error.Message);
+    Assert.Empty(_editor.Batches);
+  }
+
+  [Fact]
+  public async Task AddActuals_rejects_an_entry_without_an_item()
+  {
+    var error = await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, [Entry(" ", 5m, "Aldi")]));
+
+    Assert.Equal("actuals entry 1: itemDescription is required.", error.Message);
+  }
+
+  [Fact]
+  public async Task AddActuals_rejects_an_empty_entry()
+  {
+    var error = await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, [Entry("Groceries", 5m, "Aldi"), null!]));
+
+    Assert.Equal("actuals entry 2 is empty.", error.Message);
+    Assert.Empty(_editor.Batches);
+  }
+
+  [Fact]
+  public async Task AddActuals_needs_at_least_one_entry()
+  {
+    Assert.StartsWith("actuals must list at least one", (await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, []))).Message);
+    Assert.StartsWith("actuals must list at least one", (await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, null!))).Message);
+    Assert.Empty(_editor.Batches);
+  }
+
+  [Fact]
+  public async Task AddActuals_takes_fifty_entries_and_no_more()
+  {
+    await Tools.AddActuals(2026, 11, Enumerable.Range(0, 50).Select(_ => Entry("Groceries", 1m, "Aldi")).ToArray());
+    Assert.Equal(50, Assert.Single(_editor.Batches).Calls.Count);
+
+    var error = await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, Enumerable.Range(0, 51).Select(_ => Entry("Groceries", 1m, "Aldi")).ToArray()));
+
+    Assert.StartsWith("actuals can list at most 50 transactions, but 51 were given.", error.Message);
+    Assert.Single(_editor.Batches);
+  }
 }
