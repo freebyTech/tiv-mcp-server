@@ -1,3 +1,5 @@
+using tivMcp.Api.Models;
+
 namespace tivMcp.Api.Services.Interfaces;
 
 /// <summary>
@@ -20,6 +22,19 @@ public interface IBudgetEditor
   /// <returns>What was changed, one change per line.</returns>
   /// <exception cref="ModelContextProtocol.McpException">An argument is wrong, the tool could not do it, or a service refused.</exception>
   Task<string> ApplyAndSaveAsync(int year, int month, string? budgetName, string tool, IReadOnlyDictionary<string, object?> arguments, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Applies several tools to the same budget in order and saves the result once. All or nothing:
+  /// when one of them cannot be done, nothing is saved.
+  /// </summary>
+  /// <param name="year">The budget's year.</param>
+  /// <param name="month">The budget's month, 1 to 12.</param>
+  /// <param name="budgetName">The budget's name, or null or blank for the main budget.</param>
+  /// <param name="calls">The agent API tools to run, in order, each with its arguments.</param>
+  /// <param name="cancellationToken">Cancels the calls.</param>
+  /// <returns>What was changed, one change per line.</returns>
+  /// <exception cref="ModelContextProtocol.McpException">An argument is wrong, a tool could not do it, or a service refused.</exception>
+  Task<string> ApplyAllAndSaveAsync(int year, int month, string? budgetName, IReadOnlyList<ToolCall> calls, CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Runs a tool that only reads from the budget and its accounts. Nothing is saved.

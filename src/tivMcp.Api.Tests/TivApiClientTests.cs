@@ -21,7 +21,13 @@ public class TivApiClientTests
   }
 
   private static TivApiClient Client(FakeTivApi api, string? token = "the-users-token") =>
-    new(new FakeHttpClientFactory(api), Microsoft.Extensions.Options.Options.Create(new McpAppOptions { TivApiBaseUrl = BaseUrl }), new FixedTokenSource(token));
+    new(
+      new FakeHttpClientFactory(api),
+      Microsoft.Extensions.Options.Options.Create(new McpAppOptions { TivApiBaseUrl = BaseUrl }),
+      new FixedTokenSource(token),
+      new FixedCallReference(),
+      new RecordingLogger<TivApiClient>()
+    );
 
   [Fact]
   public async Task Get_calls_the_path_under_the_configured_base_url()
@@ -95,7 +101,7 @@ public class TivApiClientTests
   {
     var api = FakeTivApi.Returning("\"This budget is closed.\"", HttpStatusCode.Conflict);
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(api).PutJsonAsync("budgeting/budgets", "{}"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(api).PutJsonAsync("budgeting/budgets", "{}"));
 
     Assert.Contains("This budget is closed.", error.Message);
   }
@@ -105,7 +111,7 @@ public class TivApiClientTests
   {
     var api = FakeTivApi.Returning("""{"StatusCode":403,"Message":"This action requires user level 3 (you're at 1)."}""", HttpStatusCode.Forbidden);
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(api).GetJsonAsync("dashboards/total-wealth"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(api).GetJsonAsync("dashboards/total-wealth"));
 
     Assert.Equal("trackItsValue refused this request: This action requires user level 3 (you're at 1).", error.Message);
   }
@@ -115,7 +121,7 @@ public class TivApiClientTests
   {
     var api = FakeTivApi.Returning("""{"StatusCode":401,"Message":"Missing required authorization information."}""", HttpStatusCode.Unauthorized);
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(api).GetJsonAsync("user/status"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(api).GetJsonAsync("user/status"));
 
     Assert.Contains("did not accept this sign-in", error.Message);
   }
@@ -125,7 +131,7 @@ public class TivApiClientTests
   {
     var api = new FakeTivApi(_ => throw new HttpRequestException("No such host is known. (internal-host.cluster.local:443)"));
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(api).GetJsonAsync("user/status"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(api).GetJsonAsync("user/status"));
 
     Assert.Contains("could not be reached", error.Message);
     Assert.DoesNotContain("internal-host", error.Message);
@@ -136,9 +142,42 @@ public class TivApiClientTests
   {
     var api = FakeTivApi.Returning("{}");
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(api, token: null).GetJsonAsync("user/status"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(api, token: null).GetJsonAsync("user/status"));
 
     Assert.Empty(api.Requests);
     Assert.Contains("did not accept this sign-in", error.Message);
+  }
+
+  [Fact]
+  public async Task Post_sends_the_body_as_given_to_the_path_as_the_signed_in_user()
+  {
+    const string body = """{"sourceId":"b-1","destinationMonth":12}""";
+    string? sent = null;
+    string? contentType = null;
+    var api = new FakeTivApi(request =>
+    {
+      sent = request.Content!.ReadAsStringAsync().Result;
+      contentType = request.Content.Headers.ContentType?.MediaType;
+      return FakeTivApi.Json("""{"id":"b-2"}""");
+    });
+
+    var result = await Client(api, "abc.def.ghi").PostJsonAsync("budgeting/budgets/copy", body);
+
+    Assert.Equal(HttpMethod.Post, api.SingleRequest.Method);
+    Assert.Equal("https://api.example.test/tiv/budgeting/budgets/copy", api.SingleRequest.RequestUri!.AbsoluteUri);
+    Assert.Equal("abc.def.ghi", api.SingleRequest.Headers.Authorization!.Parameter);
+    Assert.Equal(body, sent);
+    Assert.Equal("application/json", contentType);
+    Assert.Equal("""{"id":"b-2"}""", result);
+  }
+
+  [Fact]
+  public async Task A_refused_post_becomes_a_tool_error_with_the_apis_reason()
+  {
+    var api = FakeTivApi.Returning("\"A budget named 'default' already exists for 2026-12.\"", HttpStatusCode.Conflict);
+
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(api).PostJsonAsync("budgeting/budgets/copy", "{}"));
+
+    Assert.Contains("A budget named 'default' already exists for 2026-12.", error.Message);
   }
 }

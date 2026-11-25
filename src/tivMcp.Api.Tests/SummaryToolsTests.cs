@@ -137,4 +137,36 @@ public class SummaryToolsTests
 
     Assert.Contains("could not read", error.Message);
   }
+
+  [Fact]
+  public async Task GetBudgetSummary_can_ask_for_one_category_or_item_only()
+  {
+    _api.JsonToReturn = BudgetJson;
+
+    await Tools.GetBudgetSummary(2026, 11, category: " Food ", item: "Restaurants");
+
+    Assert.Equal("{\"budget\":" + BudgetJson + ",\"category\":\"Food\",\"item\":\"Restaurants\"}", Assert.Single(_agentApi.Calls).Body);
+  }
+
+  [Fact]
+  public async Task GetBudgetSummary_sends_no_filter_when_none_is_given()
+  {
+    _api.JsonToReturn = BudgetJson;
+
+    await Tools.GetBudgetSummary(2026, 11, category: "  ", item: null);
+
+    Assert.Equal("{\"budget\":" + BudgetJson + "}", Assert.Single(_agentApi.Calls).Body);
+  }
+
+  [Fact]
+  public async Task GetBudgetSummary_filter_text_cannot_break_out_of_the_request()
+  {
+    _api.JsonToReturn = BudgetJson;
+
+    await Tools.GetBudgetSummary(2026, 11, item: "Mom\"s \\ \"gift\"");
+
+    var sent = System.Text.Json.JsonDocument.Parse(Assert.Single(_agentApi.Calls).Body).RootElement;
+    Assert.Equal("Mom\"s \\ \"gift\"", sent.GetProperty("item").GetString());
+    Assert.Equal(2, sent.EnumerateObject().Count());
+  }
 }

@@ -22,19 +22,23 @@ public class ToolsEndToEndTests
     "get_available_accounts",
     "get_budget",
     "get_budget_summary",
+    "get_item_trends",
     "get_server_info",
     "get_total_wealth_outlook",
     "get_user_status",
     "list_accounts",
     "list_budgets",
+    "list_trend_items",
   ];
 
   // Tools that change the user's data. Assistants are told so, and may ask the user first.
   private static readonly string[] WriteTools =
   [
     "add_actual",
+    "add_actuals",
     "add_category",
     "add_item",
+    "create_budget",
     "delete_actual",
     "delete_category",
     "delete_item",
@@ -49,7 +53,7 @@ public class ToolsEndToEndTests
   ];
 
   // Write tools that only ever add something; every other write tool replaces or removes data.
-  private static readonly string[] AdditiveTools = ["add_actual", "add_category", "add_item"];
+  private static readonly string[] AdditiveTools = ["add_actual", "add_actuals", "add_category", "add_item", "create_budget"];
 
   private static async Task<JsonElement> Rpc(McpTestHost host, string token, string method, object? parameters = null)
   {
@@ -307,5 +311,165 @@ public class ToolsEndToEndTests
 
     Assert.True(IsError(response));
     Assert.DoesNotContain("SqlException", response.GetRawText());
+  }
+
+  [Fact]
+  public async Task A_list_of_transactions_arrives_as_objects_and_is_applied_and_saved_once()
+  {
+    const string edited = """{"id":"b-1","isDirty":true}""";
+    var api = new FakeTivApi(request =>
+      request.Method == HttpMethod.Put ? FakeTivApi.Json(edited) : FakeTivApi.Json(request.RequestUri!.AbsolutePath.EndsWith("/budgeting/templates") ? "[]" : """{"id":"b-1","isNew":false}""")
+    );
+    string? sentToAgent = null;
+    var agentApi = new FakeTivApi(request =>
+    {
+      sentToAgent = request.Content!.ReadAsStringAsync().Result;
+      return FakeTivApi.Json("{\"success\":true,\"changes\":[{\"description\":\"Added two\"}],\"budget\":" + edited + "}");
+    });
+    await using var host = await McpTestHost.StartAsync(api, agentApi);
+
+    var response = await CallTool(
+      host,
+      McpTestHost.CreateToken(),
+      "add_actuals",
+      new
+      {
+        year = 2026,
+        month = 11,
+        actuals = new object[]
+        {
+          new
+          {
+            itemDescription = "Groceries",
+            amount = 55.90,
+            description = "Aldi",
+            date = "2026-11-22",
+          },
+          new
+          {
+            itemDescription = "Restaurants",
+            amount = 59,
+            description = "Parks Pizza",
+            date = "2026-11-22",
+            isCreditWithdrawl = true,
+          },
+        },
+      }
+    );
+
+    Assert.False(IsError(response));
+    Assert.Equal("Saved. Added two", ResultText(response));
+    Assert.Equal($"{McpTestHost.TivAgentApiBaseUrl}/budget-agent/apply-tools", agentApi.SingleRequest.RequestUri!.AbsoluteUri);
+    var calls = JsonDocument.Parse(sentToAgent!).RootElement.GetProperty("calls");
+    Assert.Equal(2, calls.GetArrayLength());
+    Assert.Equal("Aldi", calls[0].GetProperty("arguments").GetProperty("description").GetString());
+    Assert.False(calls[0].GetProperty("arguments").GetProperty("is_credit_withdrawl").GetBoolean());
+    Assert.True(calls[1].GetProperty("arguments").GetProperty("is_credit_withdrawl").GetBoolean());
+    Assert.Single(api.Requests, request => request.Method == HttpMethod.Put);
+  }
+
+  [Fact]
+  public async Task Creating_a_budget_copies_the_month_before_as_the_signed_in_user()
+  {
+    string? sent = null;
+    var api = new FakeTivApi(request =>
+    {
+      if (request.Method == HttpMethod.Post)
+      {
+        sent = request.Content!.ReadAsStringAsync().Result;
+        return FakeTivApi.Json("""{"id":"b-2","isNew":false}""");
+      }
+      return FakeTivApi.Json("""{"id":"b-1","isNew":false}""");
+    });
+    await using var host = await McpTestHost.StartAsync(api);
+    var token = McpTestHost.CreateToken();
+
+    var response = await CallTool(host, token, "create_budget", new { year = 2026, month = 12 });
+
+    Assert.False(IsError(response));
+    Assert.StartsWith("Created the budget for 2026-12 as a copy of 2026-11", ResultText(response));
+    Assert.Equal(
+      [$"{McpTestHost.TivApiBaseUrl}/budgeting/budgets/default/2026/11", $"{McpTestHost.TivApiBaseUrl}/budgeting/budgets/copy"],
+      api.Requests.Select(request => request.RequestUri!.AbsoluteUri)
+    );
+    Assert.Equal("b-1", JsonDocument.Parse(sent!).RootElement.GetProperty("sourceId").GetString());
+    Assert.All(api.Requests, request => Assert.Equal(token, request.Headers.Authorization!.Parameter));
+  }
+
+  [Fact]
+  public async Task When_the_month_already_has_a_budget_the_user_is_told_so()
+  {
+    var api = new FakeTivApi(request =>
+      request.Method == HttpMethod.Post ? FakeTivApi.Json("\"A budget named 'default' already exists for 2026-12.\"", HttpStatusCode.Conflict) : FakeTivApi.Json("""{"id":"b-1","isNew":false}""")
+    );
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "create_budget", new { year = 2026, month = 12 });
+
+    Assert.True(IsError(response));
+    Assert.Contains("A budget named 'default' already exists for 2026-12.", ResultText(response));
+  }
+
+  [Fact]
+  public async Task A_user_below_the_level_a_tool_needs_is_told_what_unlocks_it()
+  {
+    var api = FakeTivApi.Returning("{\"StatusCode\":403,\"Message\":\"This feature is unlocked at level 4 (price trending).\"}", HttpStatusCode.Forbidden);
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "get_item_trends", new { itemIds = new[] { "11111111-1111-1111-1111-111111111111" } });
+
+    Assert.True(IsError(response));
+    Assert.EndsWith("trackItsValue refused this request: This feature is unlocked at level 4 (price trending).", ResultText(response));
+    Assert.Equal("?continuanceIds=11111111-1111-1111-1111-111111111111", api.SingleRequest.RequestUri!.Query);
+  }
+
+  [Fact]
+  public async Task A_save_that_faults_tells_the_assistant_the_step_the_service_and_one_reference_for_the_whole_call()
+  {
+    var api = new FakeTivApi(request =>
+      request.Method == HttpMethod.Put
+        ? FakeTivApi.Json("{\"StatusCode\":500,\"Message\":\"Internal Server Error\"}", HttpStatusCode.InternalServerError)
+        : FakeTivApi.Json(request.RequestUri!.AbsolutePath.EndsWith("/budgeting/templates") ? "[]" : "{\"id\":\"b-1\",\"isNew\":false}")
+    );
+    var agentApi = FakeTivApi.Returning("{\"success\":true,\"changes\":[],\"budget\":{\"id\":\"b-1\"}}");
+    await using var host = await McpTestHost.StartAsync(api, agentApi);
+
+    var response = await CallTool(
+      host,
+      McpTestHost.CreateToken(),
+      "add_actual",
+      new
+      {
+        year = 2026,
+        month = 9,
+        itemDescription = "Restaurants",
+        amount = 28.17,
+        description = "Taco Bell",
+        date = "2026-09-22",
+      }
+    );
+
+    Assert.True(IsError(response));
+    var references = api.Requests.Concat(agentApi.Requests).Select(request => request.Headers.GetValues("X-Request-Id").Single()).Distinct().ToList();
+    var reference = Assert.Single(references);
+    Assert.Matches("^[0-9a-f]{8}$", reference);
+    Assert.EndsWith(
+      $"Saving the budget failed. trackItsValue ran into a problem of its own (status 500). Try again later. Reference {reference} (budget API). "
+        + "The save may or may not have gone through. Read the budget again before retrying, so nothing is added twice.",
+      ResultText(response)
+    );
+  }
+
+  [Fact]
+  public async Task Two_tool_calls_get_two_references()
+  {
+    var api = FakeTivApi.Returning("[]");
+    await using var host = await McpTestHost.StartAsync(api);
+    var token = McpTestHost.CreateToken();
+
+    await CallTool(host, token, "list_accounts", new { });
+    await CallTool(host, token, "list_accounts", new { });
+
+    Assert.Equal(2, api.Requests.Select(request => request.Headers.GetValues("X-Request-Id").Single()).Distinct().Count());
   }
 }

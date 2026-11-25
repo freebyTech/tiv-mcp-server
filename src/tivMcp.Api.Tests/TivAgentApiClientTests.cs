@@ -21,7 +21,13 @@ public class TivAgentApiClientTests
   }
 
   private static TivAgentApiClient Client(FakeTivApi agentApi, string? token = "the-users-token") =>
-    new(new FakeHttpClientFactory(agentApi), Microsoft.Extensions.Options.Options.Create(new McpAppOptions { TivAgentApiBaseUrl = BaseUrl }), new FixedTokenSource(token));
+    new(
+      new FakeHttpClientFactory(agentApi),
+      Microsoft.Extensions.Options.Options.Create(new McpAppOptions { TivAgentApiBaseUrl = BaseUrl }),
+      new FixedTokenSource(token),
+      new FixedCallReference(),
+      new RecordingLogger<TivAgentApiClient>()
+    );
 
   [Fact]
   public async Task Post_calls_the_path_under_the_configured_base_url()
@@ -81,7 +87,7 @@ public class TivAgentApiClientTests
   {
     var agentApi = FakeTivApi.Returning("{}");
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(agentApi, token: null).PostJsonAsync("budget-agent/summarize-budget", "{}"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(agentApi, token: null).PostJsonAsync("budget-agent/summarize-budget", "{}"));
 
     Assert.Contains("did not accept this sign-in", error.Message);
     Assert.Empty(agentApi.Requests);
@@ -92,7 +98,7 @@ public class TivAgentApiClientTests
   {
     var agentApi = FakeTivApi.Returning("""{"detail":"Invalid audience"}""", HttpStatusCode.Unauthorized);
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(agentApi).PostJsonAsync("budget-agent/summarize-budget", "{}"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(agentApi).PostJsonAsync("budget-agent/summarize-budget", "{}"));
 
     Assert.Contains("Disconnect and reconnect", error.Message);
   }
@@ -102,7 +108,7 @@ public class TivAgentApiClientTests
   {
     var agentApi = FakeTivApi.Returning("""{"detail":"Unknown tool 'drop_database'."}""", HttpStatusCode.BadRequest);
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(agentApi).PostJsonAsync("budget-agent/apply-tool", "{}"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(agentApi).PostJsonAsync("budget-agent/apply-tool", "{}"));
 
     Assert.Contains("Unknown tool 'drop_database'.", error.Message);
   }
@@ -112,7 +118,7 @@ public class TivAgentApiClientTests
   {
     var agentApi = FakeTivApi.Returning("""{"detail":"Budget summarization failed: KeyError 'budgetCategories'"}""", HttpStatusCode.InternalServerError);
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Client(agentApi).PostJsonAsync("budget-agent/summarize-budget", "{}"));
+    var error = await Assert.ThrowsAnyAsync<McpException>(() => Client(agentApi).PostJsonAsync("budget-agent/summarize-budget", "{}"));
 
     Assert.DoesNotContain("KeyError", error.Message);
     Assert.Contains("status 500", error.Message);

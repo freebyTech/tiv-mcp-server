@@ -24,4 +24,9 @@ All notable changes to this project are recorded here. The format follows
 - When the API rejects a request as invalid (400), the tool error now names the fields and what is wrong with them.
 - `get_accounts_summary` asks the agent API to leave out the template names and ids, roughly halving the summary.
 - `get_accounts_summary` asks for the agent API's compact form: closed accounts at $0.00 all month with no transactions are counted, not listed, and an unchanged fund takes one line. Open accounts are always listed.
+- `create_budget`: creates a month's budget as a copy of an earlier month (by default the month before), without its transactions, through the API's copy-budget endpoint.
+- `add_actuals`: records up to 50 transactions in one month in a single call. The agent API applies them all or none and the budget is saved once.
+- Optional `category` and `item` on `get_budget_summary`, to get one part of the budget with its totals instead of all of it.
+- `list_trend_items` and `get_item_trends`: follow budget items across months through the API's price trending endpoints, which need level 4.
+- Traceable failures. Every tool call gets a short reference that is sent to both trackItsValue services as `X-Request-Id`, written to this server's log with the failed call's method, path, status, duration and body, and shown in the error when the failure does not explain itself. Errors from a budget change now say which step failed (reading the budget, working out the change, or saving) and whether anything was saved; a save that faulted or got no answer warns that it may have gone through. Gateway errors (502, 504), a busy service (503) and a timeout each have their own wording.
 - Dockerfile (runs unit tests during the image build), Jenkinsfile and Helm chart.

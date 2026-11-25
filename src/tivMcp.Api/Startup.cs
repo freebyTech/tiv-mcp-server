@@ -118,6 +118,9 @@ public class Startup
     services.AddHttpContextAccessor();
     services.AddScoped<IUserTokenSource, ForwardedUserTokenSource>();
 
+    // One reference per tool call, sent with every request it makes and shown in its errors.
+    services.AddScoped<ICallReference, CallReference>();
+
     // The one client every tool uses to reach the trackItsValue API, as the signed-in user.
     services.AddHttpClient(TivApiClient.HttpClientName);
     services.AddScoped<ITivApiClient, TivApiClient>();
@@ -140,7 +143,9 @@ public class Startup
       .WithTools<AccountTools>()
       .WithTools<UserTools>()
       .WithTools<SummaryTools>()
-      .WithTools<BudgetEditTools>();
+      .WithTools<BudgetEditTools>()
+      .WithTools<BudgetSetupTools>()
+      .WithTools<TrendTools>();
   }
 
   /// <summary>

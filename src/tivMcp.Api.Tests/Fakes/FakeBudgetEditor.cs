@@ -1,3 +1,4 @@
+using tivMcp.Api.Models;
 using tivMcp.Api.Services.Interfaces;
 
 namespace tivMcp.Api.Tests.Fakes;
@@ -17,6 +18,14 @@ internal sealed class FakeBudgetEditor : IBudgetEditor
   public Task<string> ApplyAndSaveAsync(int year, int month, string? budgetName, string tool, IReadOnlyDictionary<string, object?> arguments, CancellationToken cancellationToken = default)
   {
     Calls.Add(new Call(year, month, budgetName, tool, arguments, Saves: true));
+    return Task.FromResult("Saved.");
+  }
+
+  public List<(int Year, int Month, string? BudgetName, IReadOnlyList<ToolCall> Calls)> Batches { get; } = [];
+
+  public Task<string> ApplyAllAndSaveAsync(int year, int month, string? budgetName, IReadOnlyList<ToolCall> calls, CancellationToken cancellationToken = default)
+  {
+    Batches.Add((year, month, budgetName, calls));
     return Task.FromResult("Saved.");
   }
 
