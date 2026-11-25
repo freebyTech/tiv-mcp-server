@@ -15,6 +15,7 @@ public static class ServerInstructions
     + "Changing a budget: a tool that succeeds answers with 'Saved.' and what changed. "
     + "To record several transactions in one month use add_actuals, not add_actual repeatedly. "
     + "If a month has no budget yet, create_budget makes one. "
+    + "To mark an account's transactions as checked against a statement use verify_account_transactions, one month per call; it changes only that account and is safe to repeat. "
     + "When a tool fails: the error says which step failed and whether anything was saved. "
     + "'Nothing was saved' means the budget is unchanged, so fixing the request or trying again cannot record anything twice. "
     + "'The save may or may not have gone through' means the outcome is unknown: read the budget with get_budget_summary before retrying, so nothing is recorded twice. "
