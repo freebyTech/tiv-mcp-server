@@ -166,6 +166,15 @@ refuses, nothing is saved. These tools need a connection that was granted `data:
 | `rectify_budget`         | The same for every item in the budget                                      |
 | `get_available_accounts` | List the accounts and account categories a transaction can be linked to (changes nothing) |
 
+### Changing accounts
+
+This tool makes one call to the trackItsValue API and returns its JSON unchanged. It needs a
+connection that was granted `data:write`.
+
+| Tool                          | API endpoint                                    | Description                                                                 |
+| ----------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------- |
+| `verify_account_transactions` | `POST accounting/accounts/verify-transactions`  | Mark one account's transactions in one month as verified (or not), for the whole month or the 1st through a given day. Has a dry run, and is safe to repeat |
+
 What a user may see is decided by the trackItsValue API, not by this server. When the API
 refuses a call (not signed in, a feature the user's level has not unlocked, a plan limit, or a
 connection that was not granted the needed permission), the tool returns the API's reason as a

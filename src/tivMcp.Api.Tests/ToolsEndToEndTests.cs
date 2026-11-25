@@ -50,6 +50,7 @@ public class ToolsEndToEndTests
     "update_category",
     "update_estimates",
     "update_item",
+    "verify_account_transactions",
   ];
 
   // Write tools that only ever add something; every other write tool replaces or removes data.
@@ -397,6 +398,67 @@ public class ToolsEndToEndTests
   }
 
   [Fact]
+  public async Task Verify_account_transactions_posts_to_the_api_as_the_user_and_returns_its_answer()
+  {
+    string? sent = null;
+    var api = new FakeTivApi(request =>
+    {
+      sent = request.Content!.ReadAsStringAsync().Result;
+      return FakeTivApi.Json("""{"accountName":"James Discover Card","markedCount":12,"remainingInEarlierMonthsCount":3}""");
+    });
+    await using var host = await McpTestHost.StartAsync(api);
+    var token = McpTestHost.CreateToken();
+
+    var response = await CallTool(
+      host,
+      token,
+      "verify_account_transactions",
+      new
+      {
+        account = "James Discover Card",
+        year = 2026,
+        month = 10,
+        throughDay = 25,
+      }
+    );
+
+    Assert.False(IsError(response));
+    Assert.Contains("\"markedCount\":12", ResultText(response));
+    var request = Assert.Single(api.Requests);
+    Assert.Equal(HttpMethod.Post, request.Method);
+    Assert.Equal($"{McpTestHost.TivApiBaseUrl}/accounting/accounts/verify-transactions", request.RequestUri!.AbsoluteUri);
+    Assert.Equal(token, request.Headers.Authorization!.Parameter);
+    Assert.Equal("""{"accountName":"James Discover Card","year":2026,"month":10,"throughDay":25,"verified":true,"dryRun":false}""", sent);
+  }
+
+  [Theory]
+  [InlineData(HttpStatusCode.Conflict, "Account month 2026-10 is closed. Closed months are read-only: reopen it before unverifying its transactions.")]
+  [InlineData(HttpStatusCode.NotFound, "No account is named 'Discover'. The accounts are: 'James Discover Card', 'Checking'.")]
+  [InlineData(HttpStatusCode.BadRequest, "2 accounts are named 'Checking'. Give the id of the one meant: a, b.")]
+  public async Task Verify_account_transactions_passes_on_the_apis_refusal(HttpStatusCode status, string reason)
+  {
+    var body = JsonSerializer.Serialize(new { StatusCode = (int)status, Message = reason });
+    var api = new FakeTivApi(_ => FakeTivApi.Json(body, status));
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(
+      host,
+      McpTestHost.CreateToken(),
+      "verify_account_transactions",
+      new
+      {
+        account = "Discover",
+        year = 2026,
+        month = 10,
+        verified = false,
+      }
+    );
+
+    Assert.True(IsError(response));
+    Assert.Contains(reason, ResultText(response));
+  }
+
+  [Fact]
   public async Task When_the_month_already_has_a_budget_the_user_is_told_so()
   {
     var api = new FakeTivApi(request =>
@@ -511,8 +573,10 @@ public class ToolsEndToEndTests
       .EnumerateArray()
       .ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool.GetProperty("description").GetString()!);
     // create_budget saves through a different call, which either makes the whole budget or nothing.
-    Assert.All(WriteTools.Except(["create_budget"]), name => Assert.Contains("check with get_budget_summary before retrying", descriptions[name]));
+    // verify_account_transactions saves no budget, and says itself that repeating it is safe.
+    Assert.All(WriteTools.Except(["create_budget", "verify_account_transactions"]), name => Assert.Contains("check with get_budget_summary before retrying", descriptions[name]));
     Assert.Contains("use add_actuals instead", descriptions["add_actual"]);
+    Assert.Contains("Repeating a call is safe", descriptions["verify_account_transactions"]);
   }
 
   [Fact]

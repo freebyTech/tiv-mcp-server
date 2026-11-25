@@ -145,6 +145,7 @@ public class Startup
       .WithTools<ServerInfoTools>()
       .WithTools<BudgetTools>()
       .WithTools<AccountTools>()
+      .WithTools<AccountEditTools>()
       .WithTools<UserTools>()
       .WithTools<SummaryTools>()
       .WithTools<BudgetEditTools>()
