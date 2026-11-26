@@ -180,6 +180,20 @@ refuses a call (not signed in, a feature the user's level has not unlocked, a pl
 connection that was not granted the needed permission), the tool returns the API's reason as a
 plain sentence.
 
+## Monthly tool call allowance
+
+Tool calls count toward a monthly allowance that depends on the user's plan. The trackItsValue
+API holds the count and the limits (its `mcp-tool` usage bucket); this server knows neither.
+Before a tool runs the server asks the API whether another call is allowed
+(`GET usage/check?bucket=mcp-tool`), and after a tool succeeds it reports the call
+(`POST usage/record`), both as the signed-in user.
+
+- When the allowance is used up, the tool does not run and the error gives the limit, the plan
+  and the date the count starts again.
+- A call that is refused, fails, or has a bad argument is not counted.
+- `get_server_info` is never counted.
+- If the check or the report itself fails, the tool call is not affected; the failure is logged.
+
 ## When a tool call fails
 
 Every tool call gets a short reference, eight hex characters. The server:

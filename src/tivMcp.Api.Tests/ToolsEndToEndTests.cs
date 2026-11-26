@@ -591,4 +591,95 @@ public class ToolsEndToEndTests
     Assert.NotEmpty(named);
     Assert.All(named, name => Assert.Contains(name, names));
   }
+
+  // ---- The monthly tool call allowance ----
+
+  private const string AllowanceUsedUp = """{"allowed":false,"tier":"free","resetAtUtc":"2026-12-01T00:00:00Z","dimensions":[{"name":"calls","used":2000,"limit":2000}]}""";
+
+  [Fact]
+  public async Task A_tool_call_is_checked_against_the_allowance_first_and_counted_after_as_the_same_user()
+  {
+    var api = FakeTivApi.Returning("[]");
+    await using var host = await McpTestHost.StartAsync(api);
+    var token = McpTestHost.CreateToken();
+
+    var response = await CallTool(host, token, "list_accounts", new { });
+
+    Assert.False(IsError(response));
+    Assert.Equal(
+      [(HttpMethod.Get, $"{McpTestHost.TivApiBaseUrl}/usage/check?bucket=mcp-tool"), (HttpMethod.Post, $"{McpTestHost.TivApiBaseUrl}/usage/record")],
+      api.UsageRequests.Select(request => (request.Method, request.RequestUri!.AbsoluteUri))
+    );
+    Assert.All(api.UsageRequests, request => Assert.Equal(token, request.Headers.Authorization!.Parameter));
+    Assert.Single(api.Requests);
+  }
+
+  [Fact]
+  public async Task When_the_allowance_is_used_up_the_tool_does_not_run_and_the_assistant_is_told_why()
+  {
+    var api = FakeTivApi.Returning("[]");
+    api.RespondToUsage = _ => FakeTivApi.Json(AllowanceUsedUp);
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "list_accounts", new { });
+
+    Assert.True(IsError(response));
+    Assert.Equal(
+      "This month's assistant tool calls are used up: 2,000 are included in the free plan. The count starts again on December 1, 2026 (UTC). "
+        + "Nothing was done, and retrying before then will not help. A paid plan includes more.",
+      ResultText(response)
+    );
+    Assert.Empty(api.Requests);
+    Assert.Equal(HttpMethod.Get, Assert.Single(api.UsageRequests).Method);
+  }
+
+  [Fact]
+  public async Task A_tool_call_that_fails_is_not_counted()
+  {
+    var api = FakeTivApi.Returning("{}", HttpStatusCode.Forbidden);
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "list_accounts", new { });
+
+    Assert.True(IsError(response));
+    Assert.DoesNotContain(api.UsageRequests, request => request.Method == HttpMethod.Post);
+  }
+
+  [Fact]
+  public async Task A_bad_argument_is_not_counted()
+  {
+    var api = FakeTivApi.Returning("{}");
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "get_accounts_overview", new { year = 2026, month = 13 });
+
+    Assert.True(IsError(response));
+    Assert.DoesNotContain(api.UsageRequests, request => request.Method == HttpMethod.Post);
+  }
+
+  [Fact]
+  public async Task When_the_allowance_cannot_be_checked_the_tool_still_runs()
+  {
+    var api = FakeTivApi.Returning("[]");
+    api.RespondToUsage = _ => FakeTivApi.Json("{}", HttpStatusCode.ServiceUnavailable);
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "list_accounts", new { });
+
+    Assert.False(IsError(response));
+    Assert.Equal("[]", ResultText(response));
+  }
+
+  [Fact]
+  public async Task Confirming_the_connection_is_not_counted_and_asks_the_api_nothing()
+  {
+    var api = FakeTivApi.Returning("{}");
+    await using var host = await McpTestHost.StartAsync(api);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), "get_server_info", new { });
+
+    Assert.False(IsError(response));
+    Assert.Empty(api.UsageRequests);
+    Assert.Empty(api.Requests);
+  }
 }
