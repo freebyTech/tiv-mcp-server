@@ -127,6 +127,7 @@ public class Startup
     services.AddHttpClient(TivAgentApiClient.HttpClientName);
     services.AddScoped<ITivAgentApiClient, TivAgentApiClient>();
     services.AddScoped<IBudgetEditor, BudgetEditor>();
+    services.AddScoped<IToolCallMeter, ToolCallMeter>();
 
     services.AddSingleton(new ServerInfo(_appName, _fullVersion));
 
@@ -142,6 +143,8 @@ public class Startup
         // horizontally without session affinity.
         options.SessionMode = HttpServerSessionMode.Stateless;
       })
+      // Every tool call is checked against, and counted toward, the user's monthly allowance.
+      .WithRequestFilters(filters => filters.AddCallToolFilter(ToolCallMetering.Filter))
       .WithTools<ServerInfoTools>()
       .WithTools<BudgetTools>()
       .WithTools<AccountTools>()

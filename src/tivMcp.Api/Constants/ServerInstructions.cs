@@ -20,5 +20,6 @@ public static class ServerInstructions
     + "'Nothing was saved' means the budget is unchanged, so fixing the request or trying again cannot record anything twice. "
     + "'The save may or may not have gone through' means the outcome is unknown: read the budget with get_budget_summary before retrying, so nothing is recorded twice. "
     + "An error that gives 'Reference' and an eight-character id is a fault on the trackItsValue side, not a mistake in the request; tell the user that reference exactly, because it finds the failure in the service's log. "
+    + "Tool calls count toward a monthly allowance set by the user's plan; when it is used up every tool refuses until the date the error gives. "
     + "A refusal that names a level, a plan or a permission is the user's account or this connection's access, and retrying will not change it.";
 }

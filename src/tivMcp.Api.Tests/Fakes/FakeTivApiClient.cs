@@ -25,6 +25,9 @@ internal sealed class FakeTivApiClient : ITivApiClient
   /// <summary>When set, every PUT fails with this error.</summary>
   public Exception? PutFailure { get; set; }
 
+  /// <summary>When set, every POST fails with this error.</summary>
+  public Exception? PostFailure { get; set; }
+
   public Task<string> GetJsonAsync(string path, IReadOnlyDictionary<string, string>? query = null, CancellationToken cancellationToken = default)
   {
     lock (Calls)
@@ -51,6 +54,10 @@ internal sealed class FakeTivApiClient : ITivApiClient
   public Task<string> PostJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default)
   {
     Posts.Add((path, jsonBody));
+    if (PostFailure != null)
+    {
+      return Task.FromException<string>(PostFailure);
+    }
     return Task.FromResult(JsonByPath.GetValueOrDefault(path, JsonToReturn));
   }
 }
