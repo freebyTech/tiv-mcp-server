@@ -34,7 +34,7 @@ public sealed class BudgetSetupTools
     "Create the budget for a month that does not have one yet, as a copy of an earlier month: the same categories, items and budgeted amounts, with no transactions. "
       + "By default the month before is copied; give copyFromYear and copyFromMonth to copy a different month. "
       + "Use this when another tool says there is no budget for the month yet. "
-      + "It is refused when the month already has a budget, and it cannot make a user's very first budget: use create_budget_from_answers for that."
+      + "It is refused when the month already has a budget, and it cannot make a user's very first budget: that is done in trackItsValue itself."
   )]
   public async Task<string> CreateBudget(
     [Description("The four-digit year of the budget to create, for example 2026.")] int year,
@@ -87,54 +87,6 @@ public sealed class BudgetSetupTools
 
     return $"Created the budget for {year}-{month:00} as a copy of {sourceYear}-{sourceMonth:00}, with its categories, items and budgeted amounts and no transactions. "
       + "Use get_budget_summary to see it.";
-  }
-
-  /// <summary>
-  /// GET budgeting/budgets/{description}/{year}/{month} to see the month is free, then POST budgeting/budgets/createNewBudget
-  /// </summary>
-  [McpServerTool(Name = "create_budget_from_answers", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-  [Description(
-    "Create a month's budget from the user's answers about their income and bills, the website's New Budget Wizard. "
-      + "Use it for a user's first budget, or when there is no earlier month worth copying; otherwise create_budget is simpler. "
-      + "Ask the user the questions first: do not guess amounts. Each answer is a yes/no with an amount (and for income, how many times a month). "
-      + "Give an amount only for a yes. A household pays a mortgage or rent, not both; the single utility answers only count when payUtilities is true. "
-      + "trackItsValue builds the categories, items and budgeted amounts, and makes a main bank account if the user has none. "
-      + "It is refused when the month already has a budget."
-  )]
-  public async Task<string> CreateBudgetFromAnswers(
-    [Description("The four-digit year of the budget to create, for example 2026.")] int year,
-    [Description("The month of the budget to create, 1 (January) to 12 (December).")] int month,
-    [Description("The user's answers to the budget questions.")] BudgetQuestionAnswers answers,
-    CancellationToken cancellationToken = default
-  )
-  {
-    ToolArguments.RequireYear(year);
-    ToolArguments.RequireMonth(month);
-    if (answers == null)
-    {
-      throw new McpException($"{nameof(answers)} is required: the user's answers to the budget questions.");
-    }
-
-    // The website only offers the wizard for a month with no budget, and it makes the user's main budget.
-    var description = ToolArguments.DefaultBudgetDescription;
-    var existing = Read(await _tivApi.GetJsonAsync($"{BudgetsPath}/{description}/{year}/{month}", cancellationToken: cancellationToken));
-    if (existing is { IsNew: false })
-    {
-      throw new McpException($"There is already a budget for {year}-{month:00}. Change it with the budget tools, or delete it first with delete_budget.");
-    }
-
-    var request = new BudgetCreateRequest
-    {
-      Description = description,
-      Year = year,
-      Month = month,
-      BudgetWizardQuestion = answers,
-    };
-
-    // The API answers with the whole new budget, which is not passed on.
-    await _tivApi.PostJsonAsync($"{BudgetsPath}/createNewBudget", JsonSerializer.Serialize(request), cancellationToken);
-
-    return $"Created the budget for {year}-{month:00} from the answers. Use get_budget_summary to see it.";
   }
 
   private static (int Year, int Month) MonthBefore(int year, int month) => month == 1 ? (year - 1, 12) : (year, month - 1);

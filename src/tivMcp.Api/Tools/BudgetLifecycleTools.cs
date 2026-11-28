@@ -117,7 +117,7 @@ public sealed class BudgetLifecycleTools
   [Description(
     "Delete a month's whole budget: every category, item and transaction in it, and the account entries those transactions made. This cannot be undone. "
       + "Only do it when the user has asked for exactly this and has confirmed it after being told what will be lost. "
-      + "A closed budget cannot be deleted; reopen it first."
+      + "The API refuses to delete a closed budget; reopen it first with reopen_budget."
       + RetryHint
   )]
   public async Task<string> DeleteBudget(
@@ -128,11 +128,6 @@ public sealed class BudgetLifecycleTools
   )
   {
     var budget = await FindAsync(year, month, budgetName, cancellationToken);
-    if (budget.IsClosed)
-    {
-      // The website does not offer Delete on a closed budget.
-      throw new McpException($"The {year}-{month:00} budget is closed, and a closed budget cannot be deleted. Reopen it first with reopen_budget.");
-    }
 
     // The website sends the budget it has loaded as the body, and so does this.
     await _tivApi.DeleteJsonAsync(BudgetsPath, budget.Json, cancellationToken);
@@ -153,10 +148,10 @@ public sealed class BudgetLifecycleTools
       throw new McpException($"There is no budget for {year}-{month:00}. list_budgets shows the user's budgets.");
     }
 
-    return new FoundBudget(Uri.EscapeDataString(state.Id), state.IsClosed, json);
+    return new FoundBudget(Uri.EscapeDataString(state.Id), json);
   }
 
-  private sealed record FoundBudget(string Id, bool IsClosed, string Json);
+  private sealed record FoundBudget(string Id, string Json);
 
   private static T? Read<T>(string json)
     where T : class

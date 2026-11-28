@@ -77,14 +77,15 @@ public class BudgetLifecycleToolsTests
   }
 
   [Fact]
-  public async Task DeleteBudget_leaves_a_closed_budget_alone()
+  public async Task DeleteBudget_leaves_whether_a_closed_budget_may_go_to_the_api()
   {
-    _api.JsonByPath[BudgetPath] = """{"id":"b-7","isNew":false,"isClosed":true}""";
+    const string closed = """{"id":"b-7","isNew":false,"isClosed":true}""";
+    _api.JsonByPath[BudgetPath] = closed;
 
-    var error = await Assert.ThrowsAsync<McpException>(() => Tools.DeleteBudget(2026, 10));
+    await Tools.DeleteBudget(2026, 10);
 
-    Assert.Contains("a closed budget cannot be deleted", error.Message);
-    Assert.Empty(_api.Deletes);
+    // The API refuses a closed budget with a 409; this server does not second-guess it.
+    Assert.Equal(closed, Assert.Single(_api.Deletes).Body);
   }
 
   [Fact]

@@ -149,7 +149,6 @@ refuses, nothing is saved. These tools need a connection that was granted `data:
 | Tool                     | Description                                                                |
 | ------------------------ | -------------------------------------------------------------------------- |
 | `create_budget`          | Create a month's budget as a copy of an earlier month, without its transactions (`POST budgeting/budgets/copy`) |
-| `create_budget_from_answers` | Create a month's budget from the user's answers about income and bills (`POST budgeting/budgets/createNewBudget`) |
 | `add_actual`             | Record a transaction against a budget item                                 |
 | `add_actuals`            | Record up to 50 transactions in one month at once, all or nothing, saved once; optionally as one combined transaction |
 | `split_actual`           | Split a transaction between budget items; the parts stay one combined transaction |

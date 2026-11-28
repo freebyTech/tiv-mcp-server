@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace tivMcp.Api.Models;
 
 /// <summary>
-/// The facts this server reads from a budget: whether it exists yet, its id, and whether it is closed.
+/// The facts this server reads from a budget: whether it exists yet and its id.
 /// </summary>
 public class BudgetState
 {
@@ -18,10 +18,4 @@ public class BudgetState
   /// </summary>
   [JsonPropertyName("isNew")]
   public bool IsNew { get; set; }
-
-  /// <summary>
-  /// True when the budget has been closed and is read-only.
-  /// </summary>
-  [JsonPropertyName("isClosed")]
-  public bool IsClosed { get; set; }
 }
