@@ -68,6 +68,15 @@ public class TivApiClient : ITivApiClient
     return await ExecuteAsync(request, Method.Post, cancellationToken);
   }
 
+  /// <inheritdoc />
+  public async Task<string> DeleteJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default)
+  {
+    var request = new RestRequest(path);
+    request.AddStringBody(jsonBody, ContentType.Json);
+
+    return await ExecuteAsync(request, Method.Delete, cancellationToken);
+  }
+
   private async Task<string> ExecuteAsync(RestRequest request, Method method, CancellationToken cancellationToken)
   {
     string token;

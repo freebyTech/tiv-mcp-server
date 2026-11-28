@@ -219,7 +219,7 @@ public sealed class BudgetEditTools
   [Description(
     "Record a transaction (an actual) against a budget item, such as a purchase or a paycheck. "
       + "To record several in the same month use add_actuals instead: one call, one save. "
-      + "For a purchase paid by credit card set isCreditWithdrawl to true. "
+      + "For a purchase paid by credit card set isCreditWithdrawl to true; for cash taken out to spend on the item set isCashWithdrawal to true. "
       + AccountIdsHint
       + "If the item has no default account, a credit card purchase needs accountLinkId and accountCategoryLinkId; call get_available_accounts to find them."
       + NamesHint
@@ -236,6 +236,7 @@ public sealed class BudgetEditTools
     [Description(NewActual.AccountLinkIdHint)] string? accountLinkId = null,
     [Description(NewActual.AccountCategoryLinkIdHint)] string? accountCategoryLinkId = null,
     [Description(BudgetNameHint)] string? budgetName = null,
+    [Description(NewActual.CashWithdrawalHint)] bool isCashWithdrawal = false,
     CancellationToken cancellationToken = default
   )
   {
@@ -249,6 +250,7 @@ public sealed class BudgetEditTools
       IsCreditWithdrawl = isCreditWithdrawl,
       AccountLinkId = accountLinkId,
       AccountCategoryLinkId = accountCategoryLinkId,
+      IsCashWithdrawal = isCashWithdrawal,
     };
 
     return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "add_actual", AddActualArguments(actual, string.Empty), cancellationToken);
@@ -336,6 +338,8 @@ public sealed class BudgetEditTools
       ["is_credit_withdrawl"] = actual.IsCreditWithdrawl,
       ["account_link_id"] = ToolArguments.OptionalText(entry + "accountLinkId", actual.AccountLinkId),
       ["account_category_link_id"] = ToolArguments.OptionalText(entry + "accountCategoryLinkId", actual.AccountCategoryLinkId),
+      // Only sent for a cash withdrawal, so an ordinary transaction is asked for as it always was.
+      ["is_envelope_deposit"] = actual.IsCashWithdrawal ? true : null,
     };
   }
 
@@ -587,6 +591,169 @@ public sealed class BudgetEditTools
     };
 
     return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "delete_actual", arguments, cancellationToken);
+  }
+
+  private const string ActualDateHint = "The transaction's date written as YYYY-MM-DD, to tell apart transactions with the same description.";
+  private const string ActualAmountHint = "The transaction's amount, to tell apart transactions with the same description.";
+
+  /// <summary>
+  /// Agent API tool move_actual.
+  /// </summary>
+  [McpServerTool(Name = "move_actual", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+  [Description(
+    "Move a transaction to another budget item, for example a purchase recorded under Groceries that belongs under Restaurants. "
+      + "Its amount, date, description and account stay as they are. To move only part of it use split_actual. "
+      + "When several transactions under the item share the description, give actualDate or actualAmount to say which one."
+      + NamesHint
+  )]
+  public Task<string> MoveActual(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The name of the budget item the transaction is under now.")] string itemDescription,
+    [Description("The description of the transaction to move.")] string actualDescription,
+    [Description("The name of the budget item to move it to.")] string toItemDescription,
+    [Description(CategoryToNarrowHint)] string? categoryDescription = null,
+    [Description("The category of the item to move it to. Only needed when two categories have an item with that name.")] string? toCategoryDescription = null,
+    [Description(ActualDateHint)] string? actualDate = null,
+    [Description(ActualAmountHint)] decimal? actualAmount = null,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    var arguments = new Dictionary<string, object?>
+    {
+      ["item_description"] = ToolArguments.RequireText(nameof(itemDescription), itemDescription),
+      ["actual_description"] = ToolArguments.RequireText(nameof(actualDescription), actualDescription),
+      ["to_item_description"] = ToolArguments.RequireText(nameof(toItemDescription), toItemDescription),
+      ["category_description"] = ToolArguments.OptionalText(nameof(categoryDescription), categoryDescription),
+      ["to_category_description"] = ToolArguments.OptionalText(nameof(toCategoryDescription), toCategoryDescription),
+      ["actual_date"] = ToolArguments.OptionalDate(nameof(actualDate), actualDate),
+      ["actual_amount"] = actualAmount,
+    };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "move_actual", arguments, cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool set_actual_account.
+  /// </summary>
+  [McpServerTool(Name = "set_actual_account", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+  [Description(
+    "Change which account a transaction is linked to, or remove the link by leaving accountLinkId empty. "
+      + "Only three kinds of transaction have an account of their own: a credit card purchase (move it to another card), "
+      + "a cash withdrawal (a cash envelope account) and a transaction of a transfer item (the account the money moves to). "
+      + "Every other transaction is posted to the budget's own account and cannot be changed here. Call get_available_accounts for the ids."
+      + NamesHint
+  )]
+  public Task<string> SetActualAccount(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The name of the budget item the transaction is under.")] string itemDescription,
+    [Description("The transaction's description.")] string actualDescription,
+    [Description("The full 36-character id of the account to link the transaction to. Leave empty to remove its link.")] string? accountLinkId = null,
+    [Description("The full 36-character id of the account category. Leave empty for the account's first category.")] string? accountCategoryLinkId = null,
+    [Description(CategoryToNarrowHint)] string? categoryDescription = null,
+    [Description(ActualDateHint)] string? actualDate = null,
+    [Description(ActualAmountHint)] decimal? actualAmount = null,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    var arguments = new Dictionary<string, object?>
+    {
+      ["item_description"] = ToolArguments.RequireText(nameof(itemDescription), itemDescription),
+      ["actual_description"] = ToolArguments.RequireText(nameof(actualDescription), actualDescription),
+      ["account_link_id"] = ToolArguments.OptionalText(nameof(accountLinkId), accountLinkId),
+      ["account_category_link_id"] = ToolArguments.OptionalText(nameof(accountCategoryLinkId), accountCategoryLinkId),
+      ["category_description"] = ToolArguments.OptionalText(nameof(categoryDescription), categoryDescription),
+      ["actual_date"] = ToolArguments.OptionalDate(nameof(actualDate), actualDate),
+      ["actual_amount"] = actualAmount,
+    };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "set_actual_account", arguments, cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool set_item_account.
+  /// </summary>
+  [McpServerTool(Name = "set_item_account", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+  [Description(
+    "Set a budget item's default account, shown as [default-acct:...] in get_budget_summary, or remove it by leaving accountLinkId empty. "
+      + "New transactions of the item then use it: for a transfer item it is the account the money moves to, "
+      + "and for any other item that allows credit card purchases it is the card they are charged to. "
+      + "Transactions already recorded keep their account. Call get_available_accounts for the ids."
+      + NamesHint
+  )]
+  public Task<string> SetItemAccount(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The name of the budget item.")] string itemDescription,
+    [Description("The full 36-character id of the account. Leave empty to remove the item's default account.")] string? accountLinkId = null,
+    [Description("The full 36-character id of the account category. Only needed when the account has more than one.")] string? accountCategoryLinkId = null,
+    [Description(CategoryToNarrowHint)] string? categoryDescription = null,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    var arguments = new Dictionary<string, object?>
+    {
+      ["item_description"] = ToolArguments.RequireText(nameof(itemDescription), itemDescription),
+      ["account_link_id"] = ToolArguments.OptionalText(nameof(accountLinkId), accountLinkId),
+      ["account_category_link_id"] = ToolArguments.OptionalText(nameof(accountCategoryLinkId), accountCategoryLinkId),
+      ["category_description"] = ToolArguments.OptionalText(nameof(categoryDescription), categoryDescription),
+    };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "set_item_account", arguments, cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool reorder_category.
+  /// </summary>
+  [McpServerTool(Name = "reorder_category", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+  [Description("Move a category to another place in the budget's list of categories. Only the order changes." + NamesHint)]
+  public Task<string> ReorderCategory(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The name of the category to move.")] string categoryDescription,
+    [Description("Where to put it, counting from 1 at the top. A number past the end means last.")] int position,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    ToolArguments.RequireRange(nameof(position), position, 1, 1000);
+    var arguments = new Dictionary<string, object?> { ["category_description"] = ToolArguments.RequireText(nameof(categoryDescription), categoryDescription), ["position"] = position };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "reorder_category", arguments, cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool reorder_item.
+  /// </summary>
+  [McpServerTool(Name = "reorder_item", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+  [Description(
+    "Move a budget item to another place within its category. Only the order changes; to move a transaction to another item use move_actual. "
+      + "The items of the revolving credit category, and of an income category that holds a transfer item, cannot be reordered."
+      + NamesHint
+  )]
+  public Task<string> ReorderItem(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The name of the item to move.")] string itemDescription,
+    [Description("Where to put it in its category, counting from 1 at the top. A number past the end means last.")] int position,
+    [Description(CategoryToNarrowHint)] string? categoryDescription = null,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    ToolArguments.RequireRange(nameof(position), position, 1, 1000);
+    var arguments = new Dictionary<string, object?>
+    {
+      ["item_description"] = ToolArguments.RequireText(nameof(itemDescription), itemDescription),
+      ["position"] = position,
+      ["category_description"] = ToolArguments.OptionalText(nameof(categoryDescription), categoryDescription),
+    };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "reorder_item", arguments, cancellationToken);
   }
 
   /// <summary>

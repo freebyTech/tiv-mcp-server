@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace tivMcp.Api.Models;
 
 /// <summary>
-/// The two facts this server reads from a budget: whether it exists yet, and its id.
+/// The facts this server reads from a budget: whether it exists yet and its id.
 /// </summary>
 public class BudgetState
 {

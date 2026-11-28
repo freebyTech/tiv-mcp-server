@@ -117,6 +117,7 @@ public class BudgetEditToolsTests
         ["is_credit_withdrawl"] = false,
         ["account_link_id"] = null,
         ["account_category_link_id"] = null,
+        ["is_envelope_deposit"] = null,
       }
     );
   }
@@ -141,6 +142,7 @@ public class BudgetEditToolsTests
         ["is_credit_withdrawl"] = true,
         ["account_link_id"] = account,
         ["account_category_link_id"] = category,
+        ["is_envelope_deposit"] = null,
       }
     );
   }
@@ -302,6 +304,7 @@ public class BudgetEditToolsTests
         ["is_credit_withdrawl"] = true,
         ["account_link_id"] = null,
         ["account_category_link_id"] = null,
+        ["is_envelope_deposit"] = null,
       }.OrderBy(a => a.Key),
       batch.Calls[1].Arguments.OrderBy(a => a.Key)
     );
@@ -532,6 +535,97 @@ public class BudgetEditToolsTests
 
     Assert.Equal("actuals must list at least 1 transaction.", none.Message);
     Assert.Equal("actuals entry 1 is empty.", empty.Message);
+    Assert.Empty(_editor.Calls);
+  }
+
+  // ---- Moving, account links, order and cash ----
+
+  [Fact]
+  public async Task AddActual_for_a_cash_withdrawal()
+  {
+    await Tools.AddActual(2026, 11, "Groceries", 60m, "Market", "2026-11-22", isCashWithdrawal: true);
+
+    Assert.Equal(true, _editor.SingleCall.Arguments["is_envelope_deposit"]);
+  }
+
+  [Fact]
+  public async Task MoveActual()
+  {
+    await Tools.MoveActual(2026, 11, "Groceries", "Chipotle", " Restaurants ", toCategoryDescription: "Food", actualAmount: 14.50m);
+
+    AssertCall(
+      "move_actual",
+      new()
+      {
+        ["item_description"] = "Groceries",
+        ["actual_description"] = "Chipotle",
+        ["to_item_description"] = "Restaurants",
+        ["category_description"] = null,
+        ["to_category_description"] = "Food",
+        ["actual_date"] = null,
+        ["actual_amount"] = 14.50m,
+      }
+    );
+  }
+
+  [Fact]
+  public async Task SetActualAccount_with_no_account_asks_for_the_link_to_be_removed()
+  {
+    await Tools.SetActualAccount(2026, 11, "Groceries", "ATM", actualDate: "2026-11-22");
+
+    AssertCall(
+      "set_actual_account",
+      new()
+      {
+        ["item_description"] = "Groceries",
+        ["actual_description"] = "ATM",
+        ["account_link_id"] = null,
+        ["account_category_link_id"] = null,
+        ["category_description"] = null,
+        ["actual_date"] = "2026-11-22",
+        ["actual_amount"] = null,
+      }
+    );
+  }
+
+  [Fact]
+  public async Task SetItemAccount()
+  {
+    const string account = "11111111-1111-1111-1111-111111111111";
+
+    await Tools.SetItemAccount(2026, 11, "Groceries", account, categoryDescription: "Food");
+
+    AssertCall(
+      "set_item_account",
+      new()
+      {
+        ["item_description"] = "Groceries",
+        ["account_link_id"] = account,
+        ["account_category_link_id"] = null,
+        ["category_description"] = "Food",
+      }
+    );
+  }
+
+  [Fact]
+  public async Task ReorderCategory_and_ReorderItem()
+  {
+    await Tools.ReorderCategory(2026, 11, "Savings", 1);
+    await Tools.ReorderItem(2026, 11, "Medicine", 2, "Food");
+
+    Assert.Equal(["reorder_category", "reorder_item"], _editor.Calls.Select(call => call.Tool));
+    Assert.Equal(("Savings", 1), (_editor.Calls[0].Arguments["category_description"], _editor.Calls[0].Arguments["position"]));
+    Assert.Equal(("Medicine", 2, "Food"), (_editor.Calls[1].Arguments["item_description"], _editor.Calls[1].Arguments["position"], _editor.Calls[1].Arguments["category_description"]));
+  }
+
+  [Fact]
+  public async Task A_position_counts_from_one()
+  {
+    var category = await Assert.ThrowsAsync<McpException>(() => Tools.ReorderCategory(2026, 11, "Savings", 0));
+    var item = await Assert.ThrowsAsync<McpException>(() => Tools.ReorderItem(2026, 11, "Medicine", -1));
+
+    Assert.StartsWith("position must be between 1 and 1000", category.Message);
+    Assert.StartsWith("position must be between 1 and 1000", item.Message);
     Assert.Empty(_editor.Calls);
   }
 }
