@@ -52,16 +52,28 @@ public class NewActual
   public bool IsCreditWithdrawl { get; set; }
 
   /// <summary>
+  /// What an assistant is told about accountLinkId, on add_actual and on each add_actuals entry.
+  /// </summary>
+  internal const string AccountLinkIdHint =
+    "The full 36-character id of a different account than the default to link the transaction to. Leave empty to use the item's default account or the budget's own account.";
+
+  /// <summary>
+  /// What an assistant is told about accountCategoryLinkId.
+  /// </summary>
+  internal const string AccountCategoryLinkIdHint =
+    "The full 36-character id of the account category to link the transaction to. Leave empty when accountLinkId is empty; needed whenever accountLinkId is given.";
+
+  /// <summary>
   /// The account to link the transaction to.
   /// </summary>
   [JsonPropertyName("accountLinkId")]
-  [Description("The full 36-character id of the account to link the transaction to. See add_actual for when it is needed.")]
+  [Description(AccountLinkIdHint)]
   public string? AccountLinkId { get; set; }
 
   /// <summary>
   /// The account category to link the transaction to.
   /// </summary>
   [JsonPropertyName("accountCategoryLinkId")]
-  [Description("The full 36-character id of the account category to link the transaction to. Needed whenever accountLinkId is given.")]
+  [Description(AccountCategoryLinkIdHint)]
   public string? AccountCategoryLinkId { get; set; }
 }
