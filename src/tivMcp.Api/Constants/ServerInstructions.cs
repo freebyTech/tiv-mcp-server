@@ -17,6 +17,7 @@ public static class ServerInstructions
     + "When one payment covers several budget items, record it with add_actuals and combined set to true, or divide a recorded transaction with split_actual, so it still matches one line on the statement. "
     + "If a month has no budget yet, create_budget makes one. "
     + "To mark an account's transactions as checked against a statement use verify_account_transactions, one month per call; it changes only that account and is safe to repeat. "
+    + "Accounts: income and spending are recorded in the budget, which posts them to the accounts by itself; use the account tools only for what is not in the budget, such as interest (add_account_transaction), moving money between accounts (transfer_between_accounts) or setting a balance (set_account_balance). In get_accounts_summary a transaction marked linked came from the budget and is changed there. "
     + "When a tool fails: the error says which step failed and whether anything was saved. "
     + "'Nothing was saved' means the budget is unchanged, so fixing the request or trying again cannot record anything twice. "
     + "'The save may or may not have gone through' means the outcome is unknown: read the budget with get_budget_summary before retrying, so nothing is recorded twice. "

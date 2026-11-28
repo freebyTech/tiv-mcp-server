@@ -178,6 +178,36 @@ connection that was granted `data:write`.
 | ----------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------- |
 | `verify_account_transactions` | `POST accounting/accounts/verify-transactions`  | Mark one account's transactions in one month as verified (or not), for the whole month or the 1st through a given day. Has a dry run, and is safe to repeat |
 
+The rest of the account tools do what the website's account page does. Most mirror a tool of the
+agent API: the server gets the month's accounts, the account templates and the account types from
+the API, has the agent API apply the tool (`POST budget-agent/apply-account-tools`), and saves the
+edited accounts with `PUT accounting/accounts`, the call the website makes on Save. If the tool
+cannot do what was asked, or either service refuses, nothing is saved. Accounts, categories and
+transactions are given by name.
+
+| Tool                               | Description                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------ |
+| `list_account_options`             | List the account types, their sub types, and each sub type's category and transaction types (read-only) |
+| `create_account`                   | Create an account (`POST accounting/accounts/createAccount`)            |
+| `rename_account`                   | Rename an account                                                        |
+| `remove_account`                   | Hide an account that has history, or delete one that never had a transaction |
+| `add_account_category`             | Add a category (a fund) to an account                                    |
+| `rename_account_category`          | Rename a category                                                        |
+| `add_account_transaction`          | Add a deposit or withdrawal directly to an account                       |
+| `update_account_transaction`       | Change a transaction, or move it to another category of the account     |
+| `delete_account_transaction`       | Delete a transaction that was entered directly in an account            |
+| `set_account_transaction_verified` | Mark one transaction verified, or clear the mark                         |
+| `combine_account_transactions`     | Mark transactions of one account as one combined transaction, or extend a combination |
+| `separate_account_transactions`    | Take transactions out of their combined transaction                      |
+| `transfer_between_accounts`        | Move money directly between two accounts, outside the budget             |
+| `set_account_balance`              | Preview or set an account's balance on given dates (`POST accounting/accounts/{id}/set-balance-as-of`) |
+| `get_months_status`                | Which months' budgets and accounts are closed, can be closed, or are blocked (`GET accounting/accounts/months-status`, read-only) |
+| `close_account_month`              | Close a month for all accounts (`POST accounting/accounts/close-month/{year}/{month}`) |
+| `reopen_account_month`             | Reopen a closed month (`POST accounting/accounts/reopen-month/{year}/{month}`) |
+
+Not covered: recurring account transactions, editing an existing Set Value entry, image
+attachments, and everything about holdings.
+
 What a user may see is decided by the trackItsValue API, not by this server. When the API
 refuses a call (not signed in, a feature the user's level has not unlocked, a plan limit, or a
 connection that was not granted the needed permission), the tool returns the API's reason as a

@@ -79,6 +79,7 @@ public sealed class SummaryTools
   [McpServerTool(Name = "get_accounts_summary", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
   [Description(
     "Get a short text summary of all of the signed-in user's accounts for one month: each account with its balances and the month's transactions. "
+      + "Amounts are always positive; each transaction is tagged deposit (money in) or withdrawal (money out), and where it applies verified, linked (it came from the budget), account transfer, or combined:... (one bank line shared with the others carrying the same tag). "
       + "Closed accounts that were at $0.00 all month with no transactions are left out and only counted in the last line; open accounts are always listed. "
       + "Prefer this over get_accounts_overview for everyday questions about balances; it is far smaller. "
       + "Use get_accounts_overview only when the full detail of every field is needed."
