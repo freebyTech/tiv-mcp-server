@@ -127,6 +127,7 @@ public class Startup
     services.AddHttpClient(TivAgentApiClient.HttpClientName);
     services.AddScoped<ITivAgentApiClient, TivAgentApiClient>();
     services.AddScoped<IBudgetEditor, BudgetEditor>();
+    services.AddScoped<IAccountEditor, AccountEditor>();
     services.AddScoped<IToolCallMeter, ToolCallMeter>();
 
     services.AddSingleton(new ServerInfo(_appName, _fullVersion));
@@ -149,6 +150,7 @@ public class Startup
       .WithTools<BudgetTools>()
       .WithTools<AccountTools>()
       .WithTools<AccountEditTools>()
+      .WithTools<AccountManagementTools>()
       .WithTools<UserTools>()
       .WithTools<SummaryTools>()
       .WithTools<BudgetEditTools>()

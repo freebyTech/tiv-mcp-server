@@ -23,12 +23,34 @@ public class ToolsEndToEndTests
     "get_budget",
     "get_budget_summary",
     "get_item_trends",
+    "get_months_status",
     "get_server_info",
     "get_total_wealth_outlook",
     "get_user_status",
+    "list_account_options",
     "list_accounts",
     "list_budgets",
     "list_trend_items",
+  ];
+
+  // Tools that change the user's accounts the way the website's account page does.
+  private static readonly string[] AccountManagementTools =
+  [
+    "add_account_category",
+    "add_account_transaction",
+    "close_account_month",
+    "combine_account_transactions",
+    "create_account",
+    "delete_account_transaction",
+    "remove_account",
+    "rename_account",
+    "rename_account_category",
+    "reopen_account_month",
+    "separate_account_transactions",
+    "set_account_balance",
+    "set_account_transaction_verified",
+    "transfer_between_accounts",
+    "update_account_transaction",
   ];
 
   // Tools that change the user's data. Assistants are told so, and may ask the user first.
@@ -54,10 +76,22 @@ public class ToolsEndToEndTests
     "update_estimates",
     "update_item",
     "verify_account_transactions",
+    .. AccountManagementTools,
   ];
 
   // Write tools that only ever add something; every other write tool replaces or removes data.
-  private static readonly string[] AdditiveTools = ["add_actual", "add_actuals", "add_category", "add_item", "create_budget"];
+  private static readonly string[] AdditiveTools =
+  [
+    "add_account_category",
+    "add_account_transaction",
+    "add_actual",
+    "add_actuals",
+    "add_category",
+    "add_item",
+    "create_account",
+    "create_budget",
+    "transfer_between_accounts",
+  ];
 
   private static async Task<JsonElement> Rpc(McpTestHost host, string token, string method, object? parameters = null)
   {
@@ -717,7 +751,16 @@ public class ToolsEndToEndTests
       .ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool.GetProperty("description").GetString()!);
     // create_budget saves through a different call, which either makes the whole budget or nothing.
     // verify_account_transactions saves no budget, and says itself that repeating it is safe.
-    Assert.All(WriteTools.Except(["create_budget", "verify_account_transactions"]), name => Assert.Contains("check with get_budget_summary before retrying", descriptions[name]));
+    Assert.All(
+      WriteTools.Except(["create_budget", "verify_account_transactions"]).Except(AccountManagementTools),
+      name => Assert.Contains("check with get_budget_summary before retrying", descriptions[name])
+    );
+    // The account tools that save through the account page's Save say the same about the accounts.
+    Assert.All(
+      AccountManagementTools.Except(["create_account", "set_account_balance", "close_account_month", "reopen_account_month"]),
+      name => Assert.Contains("check with get_accounts_summary before retrying", descriptions[name])
+    );
+    Assert.Contains("check with list_accounts before retrying", descriptions["create_account"]);
     Assert.Contains("use add_actuals instead", descriptions["add_actual"]);
     Assert.Contains("Repeating a call is safe", descriptions["verify_account_transactions"]);
   }
