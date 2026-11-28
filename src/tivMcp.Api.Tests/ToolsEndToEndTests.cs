@@ -62,6 +62,7 @@ public class ToolsEndToEndTests
     "add_item",
     "combine_actuals",
     "create_budget",
+    "create_budget_from_answers",
     "close_budget",
     "delete_actual",
     "delete_budget",
@@ -99,6 +100,7 @@ public class ToolsEndToEndTests
     "add_item",
     "create_account",
     "create_budget",
+    "create_budget_from_answers",
     "transfer_between_accounts",
   ];
 
@@ -761,7 +763,7 @@ public class ToolsEndToEndTests
     // create_budget saves through a different call, which either makes the whole budget or nothing.
     // verify_account_transactions saves no budget, and says itself that repeating it is safe.
     Assert.All(
-      WriteTools.Except(["create_budget", "verify_account_transactions"]).Except(AccountManagementTools),
+      WriteTools.Except(["create_budget", "create_budget_from_answers", "verify_account_transactions"]).Except(AccountManagementTools),
       name => Assert.Contains("check with get_budget_summary before retrying", descriptions[name])
     );
     // The account tools that save through the account page's Save say the same about the accounts.

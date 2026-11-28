@@ -128,4 +128,56 @@ public class BudgetSetupToolsTests
     Assert.StartsWith("A budget cannot be created as a copy of its own month.", error.Message);
     Assert.Empty(_api.Calls);
   }
+
+  // ---- From the wizard's answers ----
+
+  [Fact]
+  public async Task CreateBudgetFromAnswers_posts_the_answers_under_the_apis_names_for_a_month_with_no_budget()
+  {
+    _api.JsonByPath["budgeting/budgets/default/2026/12"] = """{"id":"b-new","isNew":true}""";
+    var answers = new Models.BudgetQuestionAnswers
+    {
+      ReceivePaychecks = true,
+      PaycheckCount = 2,
+      PaycheckAmount = 2819.03m,
+      PayRent = true,
+      HousingAmount = 1450m,
+    };
+
+    var answer = await Tools.CreateBudgetFromAnswers(2026, 12, answers);
+
+    var post = Assert.Single(_api.Posts);
+    Assert.Equal("budgeting/budgets/createNewBudget", post.Path);
+    var sent = System.Text.Json.JsonDocument.Parse(post.Body).RootElement;
+    Assert.Equal(("default", 2026, 12), (sent.GetProperty("description").GetString(), sent.GetProperty("year").GetInt32(), sent.GetProperty("month").GetInt32()));
+    var questions = sent.GetProperty("budgetWizardQuestion");
+    Assert.True(questions.GetProperty("receivePaychecks").GetBoolean());
+    Assert.Equal(2, questions.GetProperty("paycheckCount").GetInt32());
+    Assert.Equal(2819.03m, questions.GetProperty("paycheckAmount").GetDecimal());
+    Assert.Equal(1450m, questions.GetProperty("housingAmount").GetDecimal());
+    // Every yes/no is sent as a real true or false, which the API insists on.
+    Assert.Equal(System.Text.Json.JsonValueKind.False, questions.GetProperty("payMortgage").ValueKind);
+    Assert.Equal(System.Text.Json.JsonValueKind.Null, questions.GetProperty("groceriesAmount").ValueKind);
+    Assert.StartsWith("Created the budget for 2026-12 from the answers.", answer);
+  }
+
+  [Fact]
+  public async Task CreateBudgetFromAnswers_leaves_a_month_that_has_a_budget_alone()
+  {
+    _api.JsonByPath["budgeting/budgets/default/2026/12"] = """{"id":"b-1","isNew":false}""";
+
+    var error = await Assert.ThrowsAsync<McpException>(() => Tools.CreateBudgetFromAnswers(2026, 12, new Models.BudgetQuestionAnswers()));
+
+    Assert.StartsWith("There is already a budget for 2026-12.", error.Message);
+    Assert.Empty(_api.Posts);
+  }
+
+  [Fact]
+  public async Task CreateBudgetFromAnswers_needs_the_answers_and_a_real_month()
+  {
+    await Assert.ThrowsAsync<McpException>(() => Tools.CreateBudgetFromAnswers(2026, 12, null!));
+    await Assert.ThrowsAsync<McpException>(() => Tools.CreateBudgetFromAnswers(2026, 13, new Models.BudgetQuestionAnswers()));
+
+    Assert.Empty(_api.Calls);
+  }
 }
