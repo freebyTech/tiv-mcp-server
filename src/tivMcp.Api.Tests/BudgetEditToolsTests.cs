@@ -352,4 +352,186 @@ public class BudgetEditToolsTests
     Assert.StartsWith("actuals can list at most 50 transactions, but 51 were given.", error.Message);
     Assert.Single(_editor.Batches);
   }
+
+  // ---- Combined transactions ----
+
+  private static Models.ActualReference Named(string item, string description, string? date = null, decimal? amount = null) =>
+    new()
+    {
+      ItemDescription = item,
+      ActualDescription = description,
+      ActualDate = date,
+      ActualAmount = amount,
+    };
+
+  private static List<Dictionary<string, object?>> ListArgument(FakeBudgetEditor.Call call, string name) => Assert.IsType<List<Dictionary<string, object?>>>(call.Arguments[name]);
+
+  [Fact]
+  public async Task AddActuals_combined_runs_one_tool_with_every_entry_so_they_share_a_combination()
+  {
+    var card = Entry(" Household ", 30m, "Costco");
+    card.CategoryDescription = "Home";
+
+    await Tools.AddActuals(2026, 11, [Entry("Groceries", 90m, "Costco"), card], "Rental", combined: true);
+
+    Assert.Empty(_editor.Batches);
+    var call = _editor.SingleCall;
+    Assert.Equal((2026, 11, "Rental", "add_combined_actuals", true), (call.Year, call.Month, call.BudgetName, call.Tool, call.Saves));
+    var entries = ListArgument(call, "actuals");
+    Assert.Equal(2, entries.Count);
+    // What the caller left out is left out of the entry, not sent as null.
+    Assert.Equal(
+      new Dictionary<string, object?>
+      {
+        ["item_description"] = "Household",
+        ["amount"] = 30m,
+        ["description"] = "Costco",
+        ["date"] = "2026-11-22",
+        ["category_description"] = "Home",
+        ["is_credit_withdrawl"] = false,
+      }.OrderBy(a => a.Key),
+      entries[1].OrderBy(a => a.Key)
+    );
+  }
+
+  [Fact]
+  public async Task AddActuals_combined_needs_two_entries_and_checks_each_like_any_other()
+  {
+    var one = await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, [Entry("Groceries", 90m, "Costco")], combined: true));
+    var bad = await Assert.ThrowsAsync<McpException>(() => Tools.AddActuals(2026, 11, [Entry("Groceries", 90m, "Costco"), Entry("Household", 30m, " ")], combined: true));
+
+    Assert.StartsWith("actuals must list at least 2 transactions when combined is true.", one.Message);
+    Assert.Equal("actuals entry 2: description is required.", bad.Message);
+    Assert.Empty(_editor.Calls);
+  }
+
+  [Fact]
+  public async Task SplitActual()
+  {
+    var lines = new[]
+    {
+      new Models.SplitLine
+      {
+        ItemDescription = " Medicine ",
+        Amount = 12.34m,
+        Description = "Walgreens pharmacy",
+      },
+      new Models.SplitLine
+      {
+        ItemDescription = "Household",
+        Amount = 5m,
+        CategoryDescription = "Home",
+      },
+    };
+
+    await Tools.SplitActual(2026, 11, "Groceries", "Walgreens", lines, actualDate: "2026-11-22", actualAmount: 50m);
+
+    var call = _editor.SingleCall;
+    Assert.Equal(("split_actual", true), (call.Tool, call.Saves));
+    Assert.Equal("Groceries", call.Arguments["item_description"]);
+    Assert.Equal("Walgreens", call.Arguments["actual_description"]);
+    Assert.Null(call.Arguments["category_description"]);
+    Assert.Equal("2026-11-22", call.Arguments["actual_date"]);
+    Assert.Equal(50m, call.Arguments["actual_amount"]);
+    var sent = ListArgument(call, "splits");
+    Assert.Equal(
+      new Dictionary<string, object?>
+      {
+        ["item_description"] = "Medicine",
+        ["amount"] = 12.34m,
+        ["description"] = "Walgreens pharmacy",
+      }.OrderBy(a => a.Key),
+      sent[0].OrderBy(a => a.Key)
+    );
+    Assert.Equal(
+      new Dictionary<string, object?>
+      {
+        ["item_description"] = "Household",
+        ["amount"] = 5m,
+        ["category_description"] = "Home",
+      }.OrderBy(a => a.Key),
+      sent[1].OrderBy(a => a.Key)
+    );
+  }
+
+  [Fact]
+  public async Task SplitActual_checks_its_lines_before_anything_is_sent()
+  {
+    var line = new Models.SplitLine { ItemDescription = "Medicine", Amount = 5m };
+
+    var none = await Assert.ThrowsAsync<McpException>(() => Tools.SplitActual(2026, 11, "Groceries", "Walgreens", []));
+    var missing = await Assert.ThrowsAsync<McpException>(() => Tools.SplitActual(2026, 11, "Groceries", "Walgreens", null!));
+    var empty = await Assert.ThrowsAsync<McpException>(() => Tools.SplitActual(2026, 11, "Groceries", "Walgreens", [line, null!]));
+    var noItem = await Assert.ThrowsAsync<McpException>(() => Tools.SplitActual(2026, 11, "Groceries", "Walgreens", [new Models.SplitLine { Amount = 5m }]));
+    var tooMany = await Assert.ThrowsAsync<McpException>(() => Tools.SplitActual(2026, 11, "Groceries", "Walgreens", Enumerable.Repeat(line, 21).ToArray()));
+    var badDate = await Assert.ThrowsAsync<McpException>(() => Tools.SplitActual(2026, 11, "Groceries", "Walgreens", [line], actualDate: "22/11/2026"));
+
+    Assert.StartsWith("splits must list at least one part", none.Message);
+    Assert.StartsWith("splits must list at least one part", missing.Message);
+    Assert.Equal("splits entry 2 is empty.", empty.Message);
+    Assert.Equal("splits entry 1: itemDescription is required.", noItem.Message);
+    Assert.StartsWith("splits can list at most 20 parts, but 21 were given.", tooMany.Message);
+    Assert.StartsWith("actualDate must be a date written as YYYY-MM-DD", badDate.Message);
+    Assert.Empty(_editor.Calls);
+  }
+
+  [Fact]
+  public async Task CombineActuals()
+  {
+    await Tools.CombineActuals(2026, 11, [Named(" Groceries ", "Check 101", "2026-11-22", 60m), Named("Household", "Check 101")], "Rental");
+
+    var call = _editor.SingleCall;
+    Assert.Equal((2026, 11, "Rental", "combine_actuals", true), (call.Year, call.Month, call.BudgetName, call.Tool, call.Saves));
+    var sent = ListArgument(call, "actuals");
+    Assert.Equal(
+      new Dictionary<string, object?>
+      {
+        ["item_description"] = "Groceries",
+        ["actual_description"] = "Check 101",
+        ["actual_date"] = "2026-11-22",
+        ["actual_amount"] = 60m,
+      }.OrderBy(a => a.Key),
+      sent[0].OrderBy(a => a.Key)
+    );
+    Assert.Equal(new Dictionary<string, object?> { ["item_description"] = "Household", ["actual_description"] = "Check 101" }.OrderBy(a => a.Key), sent[1].OrderBy(a => a.Key));
+  }
+
+  [Fact]
+  public async Task CombineActuals_needs_two_transactions_each_named()
+  {
+    var one = await Assert.ThrowsAsync<McpException>(() => Tools.CombineActuals(2026, 11, [Named("Groceries", "Check 101")]));
+    var missing = await Assert.ThrowsAsync<McpException>(() => Tools.CombineActuals(2026, 11, null!));
+    var unnamed = await Assert.ThrowsAsync<McpException>(() => Tools.CombineActuals(2026, 11, [Named("Groceries", "Check 101"), Named("Household", " ")]));
+    var badDate = await Assert.ThrowsAsync<McpException>(() => Tools.CombineActuals(2026, 11, [Named("Groceries", "Check 101"), Named("Household", "Check 101", "Nov 22")]));
+    var tooMany = await Assert.ThrowsAsync<McpException>(() => Tools.CombineActuals(2026, 11, Enumerable.Repeat(Named("Groceries", "Check 101"), 51).ToArray()));
+
+    Assert.Equal("actuals must list at least 2 transactions.", one.Message);
+    Assert.Equal("actuals must list at least 2 transactions.", missing.Message);
+    Assert.Equal("actuals entry 2: actualDescription is required.", unnamed.Message);
+    Assert.StartsWith("actuals entry 2: actualDate must be a date written as YYYY-MM-DD", badDate.Message);
+    Assert.StartsWith("actuals can list at most 50 transactions, but 51 were given.", tooMany.Message);
+    Assert.Empty(_editor.Calls);
+  }
+
+  [Fact]
+  public async Task SeparateActuals()
+  {
+    await Tools.SeparateActuals(2026, 11, [Named("Groceries", "Check 101")]);
+
+    var call = _editor.SingleCall;
+    Assert.Equal(("separate_actuals", true), (call.Tool, call.Saves));
+    var sent = Assert.Single(ListArgument(call, "actuals"));
+    Assert.Equal(new Dictionary<string, object?> { ["item_description"] = "Groceries", ["actual_description"] = "Check 101" }.OrderBy(a => a.Key), sent.OrderBy(a => a.Key));
+  }
+
+  [Fact]
+  public async Task SeparateActuals_needs_a_transaction()
+  {
+    var none = await Assert.ThrowsAsync<McpException>(() => Tools.SeparateActuals(2026, 11, []));
+    var empty = await Assert.ThrowsAsync<McpException>(() => Tools.SeparateActuals(2026, 11, [null!]));
+
+    Assert.Equal("actuals must list at least 1 transaction.", none.Message);
+    Assert.Equal("actuals entry 1 is empty.", empty.Message);
+    Assert.Empty(_editor.Calls);
+  }
 }

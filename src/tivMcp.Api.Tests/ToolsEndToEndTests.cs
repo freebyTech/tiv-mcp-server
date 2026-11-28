@@ -38,6 +38,7 @@ public class ToolsEndToEndTests
     "add_actuals",
     "add_category",
     "add_item",
+    "combine_actuals",
     "create_budget",
     "delete_actual",
     "delete_category",
@@ -46,6 +47,8 @@ public class ToolsEndToEndTests
     "rectify_budget",
     "rectify_category",
     "rectify_item",
+    "separate_actuals",
+    "split_actual",
     "update_actual",
     "update_category",
     "update_estimates",
@@ -120,6 +123,27 @@ public class ToolsEndToEndTests
       Assert.Equal(isWrite && !AdditiveTools.Contains(name), annotations.GetProperty("destructiveHint").GetBoolean());
       Assert.False(string.IsNullOrWhiteSpace(tool.GetProperty("description").GetString()));
     }
+  }
+
+  [Theory]
+  [InlineData("add_actual")]
+  [InlineData("add_actuals")]
+  public async Task Tools_that_record_transactions_tell_assistants_to_leave_the_default_accounts_ids_out(string toolName)
+  {
+    // An account id on a new transaction is a link, which the API posts as the far side of a
+    // transfer. An assistant that passes the default account's ids to be safe would be asking
+    // for a transfer from an account to itself, so the tools must say to leave them out.
+    await using var host = await McpTestHost.StartAsync();
+
+    var response = await Rpc(host, McpTestHost.CreateToken(), "tools/list");
+
+    var tool = response.GetProperty("result").GetProperty("tools").EnumerateArray().Single(tool => tool.GetProperty("name").GetString() == toolName);
+    var description = tool.GetProperty("description").GetString();
+    Assert.Contains("Leave accountLinkId and accountCategoryLinkId empty when the transaction uses the item's default account", description);
+    Assert.Contains("Only pass account ids to use a different account than the default.", description);
+    Assert.Contains("never pass that account's ids either", description);
+    // The same guidance sits on the argument itself, where an assistant filling it in reads it.
+    Assert.Contains("id of a different account than the default", tool.GetProperty("inputSchema").GetRawText());
   }
 
   [Fact]
@@ -367,6 +391,125 @@ public class ToolsEndToEndTests
     Assert.False(calls[0].GetProperty("arguments").GetProperty("is_credit_withdrawl").GetBoolean());
     Assert.True(calls[1].GetProperty("arguments").GetProperty("is_credit_withdrawl").GetBoolean());
     Assert.Single(api.Requests, request => request.Method == HttpMethod.Put);
+  }
+
+  private static async Task<(JsonElement Response, JsonElement SentToAgent)> CallEditTool(string name, object arguments)
+  {
+    const string edited = """{"id":"b-1","isDirty":true}""";
+    var api = new FakeTivApi(request =>
+      request.Method == HttpMethod.Put ? FakeTivApi.Json(edited) : FakeTivApi.Json(request.RequestUri!.AbsolutePath.EndsWith("/budgeting/templates") ? "[]" : """{"id":"b-1","isNew":false}""")
+    );
+    string? sentToAgent = null;
+    var agentApi = new FakeTivApi(request =>
+    {
+      sentToAgent = request.Content!.ReadAsStringAsync().Result;
+      return FakeTivApi.Json("{\"success\":true,\"changes\":[{\"description\":\"Done\"}],\"budget\":" + edited + "}");
+    });
+    await using var host = await McpTestHost.StartAsync(api, agentApi);
+
+    var response = await CallTool(host, McpTestHost.CreateToken(), name, arguments);
+
+    Assert.Equal($"{McpTestHost.TivAgentApiBaseUrl}/budget-agent/apply-tool", agentApi.SingleRequest.RequestUri!.AbsoluteUri);
+    Assert.Single(api.Requests, request => request.Method == HttpMethod.Put);
+    return (response, JsonDocument.Parse(sentToAgent!).RootElement.Clone());
+  }
+
+  [Fact]
+  public async Task Recording_transactions_as_combined_sends_them_to_one_tool_and_saves_once()
+  {
+    var (response, sent) = await CallEditTool(
+      "add_actuals",
+      new
+      {
+        year = 2026,
+        month = 11,
+        combined = true,
+        actuals = new object[]
+        {
+          new
+          {
+            itemDescription = "Groceries",
+            amount = 90,
+            description = "Costco",
+            date = "2026-11-22",
+          },
+          new
+          {
+            itemDescription = "Household",
+            amount = 30,
+            description = "Costco",
+            date = "2026-11-22",
+          },
+        },
+      }
+    );
+
+    Assert.False(IsError(response));
+    Assert.Equal("Saved. Done", ResultText(response));
+    Assert.Equal("add_combined_actuals", sent.GetProperty("tool").GetString());
+    var entries = sent.GetProperty("arguments").GetProperty("actuals");
+    Assert.Equal(2, entries.GetArrayLength());
+    Assert.Equal("Household", entries[1].GetProperty("item_description").GetString());
+    Assert.Equal(30m, entries[1].GetProperty("amount").GetDecimal());
+    Assert.False(entries[1].TryGetProperty("account_link_id", out _));
+  }
+
+  [Fact]
+  public async Task Splitting_a_transaction_sends_its_lines_under_the_agent_apis_names()
+  {
+    var (response, sent) = await CallEditTool(
+      "split_actual",
+      new
+      {
+        year = 2026,
+        month = 11,
+        itemDescription = "Groceries",
+        actualDescription = "Walgreens",
+        splits = new object[] { new { itemDescription = "Medicine", amount = 12.34 } },
+      }
+    );
+
+    Assert.False(IsError(response));
+    Assert.Equal("split_actual", sent.GetProperty("tool").GetString());
+    var arguments = sent.GetProperty("arguments");
+    Assert.Equal("Walgreens", arguments.GetProperty("actual_description").GetString());
+    var line = Assert.Single(arguments.GetProperty("splits").EnumerateArray());
+    Assert.Equal("Medicine", line.GetProperty("item_description").GetString());
+    Assert.Equal(12.34m, line.GetProperty("amount").GetDecimal());
+    Assert.False(line.TryGetProperty("description", out _));
+  }
+
+  [Theory]
+  [InlineData("combine_actuals")]
+  [InlineData("separate_actuals")]
+  public async Task Combining_and_separating_name_each_transaction_under_the_agent_apis_names(string toolName)
+  {
+    var (response, sent) = await CallEditTool(
+      toolName,
+      new
+      {
+        year = 2026,
+        month = 11,
+        actuals = new object[]
+        {
+          new
+          {
+            itemDescription = "Groceries",
+            actualDescription = "Check 101",
+            actualAmount = 60,
+          },
+          new { itemDescription = "Household", actualDescription = "Check 101" },
+        },
+      }
+    );
+
+    Assert.False(IsError(response));
+    Assert.Equal(toolName, sent.GetProperty("tool").GetString());
+    var named = sent.GetProperty("arguments").GetProperty("actuals");
+    Assert.Equal(2, named.GetArrayLength());
+    Assert.Equal("Check 101", named[0].GetProperty("actual_description").GetString());
+    Assert.Equal(60m, named[0].GetProperty("actual_amount").GetDecimal());
+    Assert.False(named[1].TryGetProperty("actual_amount", out _));
   }
 
   [Fact]

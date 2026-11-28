@@ -14,6 +14,7 @@ public static class ServerInstructions
     + "Reading: prefer get_budget_summary and get_accounts_summary, which are far smaller than get_budget and get_accounts_overview. "
     + "Changing a budget: a tool that succeeds answers with 'Saved.' and what changed. "
     + "To record several transactions in one month use add_actuals, not add_actual repeatedly. "
+    + "When one payment covers several budget items, record it with add_actuals and combined set to true, or divide a recorded transaction with split_actual, so it still matches one line on the statement. "
     + "If a month has no budget yet, create_budget makes one. "
     + "To mark an account's transactions as checked against a statement use verify_account_transactions, one month per call; it changes only that account and is safe to repeat. "
     + "When a tool fails: the error says which step failed and whether anything was saved. "

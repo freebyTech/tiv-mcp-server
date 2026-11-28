@@ -150,7 +150,10 @@ refuses, nothing is saved. These tools need a connection that was granted `data:
 | ------------------------ | -------------------------------------------------------------------------- |
 | `create_budget`          | Create a month's budget as a copy of an earlier month, without its transactions (`POST budgeting/budgets/copy`) |
 | `add_actual`             | Record a transaction against a budget item                                 |
-| `add_actuals`            | Record up to 50 transactions in one month at once, all or nothing, saved once |
+| `add_actuals`            | Record up to 50 transactions in one month at once, all or nothing, saved once; optionally as one combined transaction |
+| `split_actual`           | Split a transaction between budget items; the parts stay one combined transaction |
+| `combine_actuals`        | Mark transactions as one combined transaction (one bank line), or add to an existing combination |
+| `separate_actuals`       | Take transactions out of their combined transaction                        |
 | `update_actual`          | Change a transaction's amount, description or date                         |
 | `delete_actual`          | Delete a transaction                                                       |
 | `add_item`               | Add a budget item to a category                                            |

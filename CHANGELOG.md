@@ -5,8 +5,13 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `add_actual` and `add_actuals` now tell assistants to leave `accountLinkId` and `accountCategoryLinkId` empty unless the transaction uses a different account than the default. Passing the default account's ids made the trackItsValue API post a mirrored pair of entries in that account; the API and the agent API now also ignore such ids.
+
 ### Added
 
+- Combined transactions, the website's Split and Combine: several budget transactions that are one line on the bank or card statement. `split_actual` divides a transaction between items, `combine_actuals` combines transactions already recorded or extends a combination, `separate_actuals` takes transactions out of one, and `add_actuals` takes `combined` to record new transactions already combined. `get_budget_summary` marks the members of a combination with the same `[combined:...]` tag. The agent API applies the website's rules (one account, one date, one payment type). Combining transactions entered directly in an account is not covered yet.
 - Solution scaffold: `tivMcp.Api` (ASP.NET Core, .NET 10, official MCP C# SDK) and `tivMcp.Api.Tests` (xUnit).
 - Streamable HTTP MCP endpoint at `/mcp` and an unauthenticated `/health` probe.
 - `get_server_info` tool for confirming a connection.

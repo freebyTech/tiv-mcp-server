@@ -35,6 +35,7 @@ public sealed class SummaryTools
     "Get a short text summary of one month's budget: income and spending totals, then every category and budget item with the amount budgeted and spent. "
       + "Prefer this over get_budget for everyday questions such as how much is left for an item this month; it is far smaller. "
       + "Use get_budget only when the full detail of every field is needed. "
+      + "Transactions that are one line on the bank or card statement carry the same [combined:...] tag; see combine_actuals. "
       + "If the user has no budget for that month the summary shows zero totals and no categories. "
       + "Set includeTemplates to true before adding a category or an item, to also list the category and item templates they can be based on. "
       + "When the question is about one category or one item, give category or item to get only that part with the budget's totals: far smaller still. "
