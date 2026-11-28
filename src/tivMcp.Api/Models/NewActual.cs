@@ -52,6 +52,20 @@ public class NewActual
   public bool IsCreditWithdrawl { get; set; }
 
   /// <summary>
+  /// True when this is cash taken out to spend on the item.
+  /// </summary>
+  [JsonPropertyName("isCashWithdrawal")]
+  [Description(CashWithdrawalHint)]
+  public bool IsCashWithdrawal { get; set; }
+
+  /// <summary>
+  /// What an assistant is told about isCashWithdrawal.
+  /// </summary>
+  internal const string CashWithdrawalHint =
+    "True when this is cash taken out to spend on the item (the website's Cash Withdrawal). The item's type must allow cash. "
+    + "To put the cash in a cash envelope account give that account's ids; without them it is simply recorded as spent.";
+
+  /// <summary>
   /// What an assistant is told about accountLinkId, on add_actual and on each add_actuals entry.
   /// </summary>
   internal const string AccountLinkIdHint =

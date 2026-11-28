@@ -34,4 +34,13 @@ public interface ITivApiClient
   /// <param name="cancellationToken">Cancels the call.</param>
   /// <exception cref="ModelContextProtocol.McpException">The API refused the call or could not be reached.</exception>
   Task<string> PostJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Sends a DELETE with a JSON body and returns the response body exactly as the API wrote it.
+  /// </summary>
+  /// <param name="path">The path below the API base URL, for example "budgeting/budgets".</param>
+  /// <param name="jsonBody">The request body, already JSON.</param>
+  /// <param name="cancellationToken">Cancels the call.</param>
+  /// <exception cref="ModelContextProtocol.McpException">The API refused the call or could not be reached.</exception>
+  Task<string> DeleteJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default);
 }

@@ -16,6 +16,7 @@ public static class ServerInstructions
     + "To record several transactions in one month use add_actuals, not add_actual repeatedly. "
     + "When one payment covers several budget items, record it with add_actuals and combined set to true, or divide a recorded transaction with split_actual, so it still matches one line on the statement. "
     + "If a month has no budget yet, create_budget makes one. "
+    + "Closing a month is two steps in this order: close_budget, then close_account_month once the account transactions are verified; reopening goes the other way round. "
     + "To mark an account's transactions as checked against a statement use verify_account_transactions, one month per call; it changes only that account and is safe to repeat. "
     + "Accounts: income and spending are recorded in the budget, which posts them to the accounts by itself; use the account tools only for what is not in the budget, such as interest (add_account_transaction), moving money between accounts (transfer_between_accounts) or setting a balance (set_account_balance). In get_accounts_summary a transaction marked linked came from the budget and is changed there. "
     + "When a tool fails: the error says which step failed and whether anything was saved. "

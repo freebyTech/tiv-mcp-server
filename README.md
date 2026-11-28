@@ -155,6 +155,15 @@ refuses, nothing is saved. These tools need a connection that was granted `data:
 | `combine_actuals`        | Mark transactions as one combined transaction (one bank line), or add to an existing combination |
 | `separate_actuals`       | Take transactions out of their combined transaction                        |
 | `update_actual`          | Change a transaction's amount, description or date                         |
+| `move_actual`            | Move a transaction to another budget item                                  |
+| `set_actual_account`     | Change which account a card purchase, cash withdrawal or transfer is linked to, or remove the link |
+| `set_item_account`       | Set or remove a budget item's default account                              |
+| `reorder_category`       | Move a category to another place in the budget                             |
+| `reorder_item`           | Move an item to another place within its category                          |
+| `set_budget_prediction`  | Snapshot what each category is budgeted, to measure the month against (`POST budgeting/budgets/{id}/set-prediction`) |
+| `close_budget`           | Close a month's budget (`POST budgeting/budgets/{id}/close`)             |
+| `reopen_budget`          | Reopen a closed budget (`POST budgeting/budgets/{id}/reopen`)            |
+| `delete_budget`          | Delete a month's whole budget (`DELETE budgeting/budgets`)                |
 | `delete_actual`          | Delete a transaction                                                       |
 | `add_item`               | Add a budget item to a category                                            |
 | `update_item`            | Change an item's budgeted amount or name                                   |

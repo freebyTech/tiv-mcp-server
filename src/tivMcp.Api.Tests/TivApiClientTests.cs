@@ -180,4 +180,24 @@ public class TivApiClientTests
 
     Assert.Contains("A budget named 'default' already exists for 2026-12.", error.Message);
   }
+
+  [Fact]
+  public async Task Delete_sends_the_body_as_given_to_the_path_as_the_signed_in_user()
+  {
+    const string body = """{"id":"b-1", "description":"default"}""";
+    string? sent = null;
+    var api = new FakeTivApi(request =>
+    {
+      sent = request.Content!.ReadAsStringAsync().Result;
+      return FakeTivApi.Json("""{"isNew":true}""");
+    });
+
+    var result = await Client(api, "abc.def.ghi").DeleteJsonAsync("budgeting/budgets", body);
+
+    Assert.Equal(HttpMethod.Delete, api.SingleRequest.Method);
+    Assert.Equal("https://api.example.test/tiv/budgeting/budgets", api.SingleRequest.RequestUri!.AbsoluteUri);
+    Assert.Equal("abc.def.ghi", api.SingleRequest.Headers.Authorization!.Parameter);
+    Assert.Equal(body, sent);
+    Assert.Equal("""{"isNew":true}""", result);
+  }
 }

@@ -17,6 +17,8 @@ internal sealed class FakeTivApiClient : ITivApiClient
 
   public List<(string Path, string Body)> Posts { get; } = [];
 
+  public List<(string Path, string Body)> Deletes { get; } = [];
+
   public List<(string Path, IReadOnlyDictionary<string, string>? Query)> Calls { get; } = [];
 
   /// <summary>Paths whose GET fails with the given error instead of answering.</summary>
@@ -59,5 +61,11 @@ internal sealed class FakeTivApiClient : ITivApiClient
       return Task.FromException<string>(PostFailure);
     }
     return Task.FromResult(JsonByPath.GetValueOrDefault(path, JsonToReturn));
+  }
+
+  public Task<string> DeleteJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default)
+  {
+    Deletes.Add((path, jsonBody));
+    return Task.FromResult(JsonToReturn);
   }
 }

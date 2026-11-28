@@ -155,6 +155,7 @@ public class Startup
       .WithTools<SummaryTools>()
       .WithTools<BudgetEditTools>()
       .WithTools<BudgetSetupTools>()
+      .WithTools<BudgetLifecycleTools>()
       .WithTools<TrendTools>();
   }
 
