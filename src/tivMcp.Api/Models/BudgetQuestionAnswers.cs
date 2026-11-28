@@ -7,7 +7,7 @@ namespace tivMcp.Api.Models;
 /// The answers to the questions the website's new budget wizard asks, for the
 /// create_budget_from_answers tool. The trackItsValue API builds the budget's categories and
 /// items from them. The names are the API's own (BudgetWizardQuestionReqeust), spelling included.
-/// Generated from that class; regenerate rather than edit by hand.
+/// Keep the two in step when the API gains or loses a question.
 /// </summary>
 public class BudgetQuestionAnswers
 {
