@@ -35,27 +35,42 @@ public sealed class SummaryTools
     "Get a short text summary of one month's budget: income and spending totals, then every category and budget item with the amount budgeted and spent. "
       + "Prefer this over get_budget for everyday questions such as how much is left for an item this month; it is far smaller. "
       + "Use get_budget only when the full detail of every field is needed. "
+      + "Transactions that are one line on the bank or card statement carry the same [combined:...] tag; see combine_actuals. "
       + "If the user has no budget for that month the summary shows zero totals and no categories. "
-      + "Set includeTemplates to true before adding a category or an item, to also list the category and item templates they can be based on."
+      + "Set includeTemplates to true before adding a category or an item, to also list the category and item templates they can be based on. "
+      + "When the question is about one category or one item, give category or item to get only that part with the budget's totals: far smaller still. "
+      + "Names match without regard to case and may be partial; if nothing matches, the answer lists the names that exist."
   )]
   public async Task<string> GetBudgetSummary(
     [Description("The four-digit year of the budget, for example 2026.")] int year,
     [Description("The month of the budget, 1 (January) to 12 (December).")] int month,
     [Description("The budget's name. Leave empty for the user's main budget, which is named 'default'.")] string? budgetName = null,
     [Description("True to also list the available category and item templates. Only needed before adding a category or an item.")] bool includeTemplates = false,
+    [Description("Only summarize categories with this name, for example 'Food'. Leave empty for all categories.")] string? category = null,
+    [Description("Only summarize budget items with this name, for example 'Restaurants'. Leave empty for all items.")] string? item = null,
     CancellationToken cancellationToken = default
   )
   {
     ToolArguments.RequireYear(year);
     ToolArguments.RequireMonth(month);
     var description = ToolArguments.BudgetDescriptionOrDefault(budgetName);
+    var categoryFilter = ToolArguments.OptionalText(nameof(category), category);
+    var itemFilter = ToolArguments.OptionalText(nameof(item), item);
 
     var budgetJson = await _tivApi.GetJsonAsync($"budgeting/budgets/{Uri.EscapeDataString(description)}/{year}/{month}", cancellationToken: cancellationToken);
     var templatesJson = includeTemplates ? await _tivApi.GetJsonAsync("budgeting/templates", cancellationToken: cancellationToken) : null;
 
-    var templates = string.IsNullOrWhiteSpace(templatesJson) ? string.Empty : $",\"budget-templates\":{templatesJson}";
+    var more = string.IsNullOrWhiteSpace(templatesJson) ? string.Empty : $",\"budget-templates\":{templatesJson}";
+    if (categoryFilter != null)
+    {
+      more += $",\"category\":{JsonSerializer.Serialize(categoryFilter)}";
+    }
+    if (itemFilter != null)
+    {
+      more += $",\"item\":{JsonSerializer.Serialize(itemFilter)}";
+    }
 
-    return await Summarize("budget-agent/summarize-budget", "budget", budgetJson, templates, cancellationToken);
+    return await Summarize("budget-agent/summarize-budget", "budget", budgetJson, more, cancellationToken);
   }
 
   /// <summary>

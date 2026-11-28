@@ -128,11 +128,13 @@ summary it writes.
 | `get_server_info`          | (none)                                            | Name and version of the running MCP server                                  |
 | `list_budgets`             | `GET budgeting/budgets/list/{count}`              | The user's most recent monthly budgets, newest first                        |
 | `get_budget`               | `GET budgeting/budgets/{name}/{year}/{month}`     | One month's budget: totals, categories, items and actuals                   |
-| `get_budget_summary`       | the same, then agent `POST budget-agent/summarize-budget` | One month's budget as a short text summary; far smaller than `get_budget` |
+| `get_budget_summary`       | the same, then agent `POST budget-agent/summarize-budget` | One month's budget as a short text summary; far smaller than `get_budget`. Optional `category` and `item` narrow it to one part |
 | `list_accounts`            | `GET accounting/accounts/all`                     | The user's accounts                                                         |
 | `get_accounts_overview`    | `GET accounting/accounts/all/{year}/{month}`      | All accounts for one month, with balances and that month's transactions     |
 | `get_accounts_summary`     | the same, then agent `POST budget-agent/summarize-accounts` | All accounts for one month as a short text summary; far smaller than `get_accounts_overview` |
 | `get_user_status`          | `GET user/status`                                 | The user's level, experience points and counts of budgets and accounts      |
+| `list_trend_items`         | `GET budgeting/lineage/groups`                    | The budget items that can be followed across months, each with its id. Needs level 4 |
+| `get_item_trends`          | `GET budgeting/lineage/trends?continuanceIds=`    | Budgeted and actual amounts per month for the given items. Needs level 4    |
 | `get_total_wealth_outlook` | `GET dashboards/total-wealth?range=`              | Wealth over time, one point per closed month                                |
 
 ### Changing a budget
@@ -146,7 +148,12 @@ refuses, nothing is saved. These tools need a connection that was granted `data:
 
 | Tool                     | Description                                                                |
 | ------------------------ | -------------------------------------------------------------------------- |
+| `create_budget`          | Create a month's budget as a copy of an earlier month, without its transactions (`POST budgeting/budgets/copy`) |
 | `add_actual`             | Record a transaction against a budget item                                 |
+| `add_actuals`            | Record up to 50 transactions in one month at once, all or nothing, saved once; optionally as one combined transaction |
+| `split_actual`           | Split a transaction between budget items; the parts stay one combined transaction |
+| `combine_actuals`        | Mark transactions as one combined transaction (one bank line), or add to an existing combination |
+| `separate_actuals`       | Take transactions out of their combined transaction                        |
 | `update_actual`          | Change a transaction's amount, description or date                         |
 | `delete_actual`          | Delete a transaction                                                       |
 | `add_item`               | Add a budget item to a category                                            |
@@ -162,10 +169,51 @@ refuses, nothing is saved. These tools need a connection that was granted `data:
 | `rectify_budget`         | The same for every item in the budget                                      |
 | `get_available_accounts` | List the accounts and account categories a transaction can be linked to (changes nothing) |
 
+### Changing accounts
+
+This tool makes one call to the trackItsValue API and returns its JSON unchanged. It needs a
+connection that was granted `data:write`.
+
+| Tool                          | API endpoint                                    | Description                                                                 |
+| ----------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------- |
+| `verify_account_transactions` | `POST accounting/accounts/verify-transactions`  | Mark one account's transactions in one month as verified (or not), for the whole month or the 1st through a given day. Has a dry run, and is safe to repeat |
+
 What a user may see is decided by the trackItsValue API, not by this server. When the API
 refuses a call (not signed in, a feature the user's level has not unlocked, a plan limit, or a
 connection that was not granted the needed permission), the tool returns the API's reason as a
 plain sentence.
+
+## Monthly tool call allowance
+
+Tool calls count toward a monthly allowance that depends on the user's plan. The trackItsValue
+API holds the count and the limits (its `mcp-tool` usage bucket); this server knows neither.
+Before a tool runs the server asks the API whether another call is allowed
+(`GET usage/check?bucket=mcp-tool`), and after a tool succeeds it reports the call
+(`POST usage/record`), both as the signed-in user.
+
+- When the allowance is used up, the tool does not run and the error gives the limit, the plan
+  and the date the count starts again.
+- A call that is refused, fails, or has a bad argument is not counted.
+- `get_server_info` is never counted.
+- If the check or the report itself fails, the tool call is not affected; the failure is logged.
+
+## When a tool call fails
+
+Every tool call gets a short reference, eight hex characters. The server:
+
+- sends it to both trackItsValue services with every request, in the `X-Request-Id` header;
+- writes a warning to its own log for each failed request: the reference, the service, the method and path, the status, how long it took, and the start of the response body;
+- shows it in the error when the failure does not explain itself, for example `Reference 3f9a1c2e (budget API).`
+
+To find out why a call failed, search this server's log for the reference. The response body is in the log only: a failing service can put internal detail in it, so it is never shown to the assistant.
+
+A tool that changes a budget also says which step failed and what that means for the data:
+
+| Step                    | The error starts with            | What it means                                                                                       |
+| ----------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Reading from the API    | `Reading the ... failed.`        | Nothing was saved                                                                                   |
+| Editing in the agent API | `Working out the change failed.` | Nothing was saved                                                                                   |
+| Saving through the API  | `Saving the budget failed.`      | Refused (a 4xx): nothing was saved. A fault or no answer: unknown, so read the budget before retrying |
 
 ## Repository layout
 

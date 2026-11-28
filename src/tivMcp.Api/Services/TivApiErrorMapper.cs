@@ -19,14 +19,15 @@ public static class TivApiErrorMapper
   /// </summary>
   /// <param name="statusCode">The HTTP status the API answered with, or 0 when there was no answer at all.</param>
   /// <param name="body">The response body, if any.</param>
-  public static string Describe(int statusCode, string? body)
+  /// <param name="timedOut">Whether there was no answer because the wait ran out, as opposed to no connection.</param>
+  public static string Describe(int statusCode, string? body, bool timedOut = false)
   {
     var reason = ExtractMessage(body);
 
     switch (statusCode)
     {
       case 0:
-        return "trackItsValue could not be reached. Try again in a moment.";
+        return timedOut ? "trackItsValue did not answer in time. Try again in a moment." : "trackItsValue could not be reached. Try again in a moment.";
       case 401:
         return "trackItsValue did not accept this sign-in. Disconnect and reconnect trackItsValue in your assistant, then try again.";
       case 402:
@@ -37,6 +38,11 @@ public static class TivApiErrorMapper
         return WithReason("trackItsValue could not find what was asked for", reason);
       case 429:
         return "trackItsValue is receiving too many requests right now. Wait a minute and try again.";
+      case 502:
+      case 504:
+        return $"trackItsValue could not be reached through its gateway (status {statusCode}); it may be restarting. Try again in a moment.";
+      case 503:
+        return "trackItsValue is busy or restarting (status 503). Try again in a moment.";
     }
 
     if (statusCode >= 500)
@@ -46,6 +52,22 @@ public static class TivApiErrorMapper
     }
 
     return WithReason($"trackItsValue could not process this request (status {statusCode})", reason);
+  }
+
+  /// <summary>
+  /// Whether the sentence for this failure leaves the user without a cause: the service did not
+  /// answer, failed on its own, or refused without saying why. Those are the failures that need
+  /// the log to explain, so they are the ones shown with a reference to it.
+  /// </summary>
+  public static bool IsUnexplained(int statusCode, string? body)
+  {
+    if (statusCode == 0 || statusCode >= 500)
+    {
+      return true;
+    }
+
+    // These two say what to do whatever the body holds.
+    return statusCode is not (401 or 429) && ExtractMessage(body) == null;
   }
 
   private static string WithReason(string sentence, string? reason) => reason != null ? $"{sentence}: {reason}" : $"{sentence}.";

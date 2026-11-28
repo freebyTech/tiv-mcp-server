@@ -118,29 +118,42 @@ public class Startup
     services.AddHttpContextAccessor();
     services.AddScoped<IUserTokenSource, ForwardedUserTokenSource>();
 
+    // One reference per tool call, sent with every request it makes and shown in its errors.
+    services.AddScoped<ICallReference, CallReference>();
+
     // The one client every tool uses to reach the trackItsValue API, as the signed-in user.
     services.AddHttpClient(TivApiClient.HttpClientName);
     services.AddScoped<ITivApiClient, TivApiClient>();
     services.AddHttpClient(TivAgentApiClient.HttpClientName);
     services.AddScoped<ITivAgentApiClient, TivAgentApiClient>();
     services.AddScoped<IBudgetEditor, BudgetEditor>();
+    services.AddScoped<IToolCallMeter, ToolCallMeter>();
 
     services.AddSingleton(new ServerInfo(_appName, _fullVersion));
 
     services
-      .AddMcpServer()
+      .AddMcpServer(options =>
+      {
+        // What every assistant is told on connecting: which tools to prefer and how to read a failure.
+        options.ServerInstructions = ServerInstructions.Text;
+      })
       .WithHttpTransport(options =>
       {
         // Stateless: no server-to-client requests are needed, and it lets the server scale
         // horizontally without session affinity.
         options.SessionMode = HttpServerSessionMode.Stateless;
       })
+      // Every tool call is checked against, and counted toward, the user's monthly allowance.
+      .WithRequestFilters(filters => filters.AddCallToolFilter(ToolCallMetering.Filter))
       .WithTools<ServerInfoTools>()
       .WithTools<BudgetTools>()
       .WithTools<AccountTools>()
+      .WithTools<AccountEditTools>()
       .WithTools<UserTools>()
       .WithTools<SummaryTools>()
-      .WithTools<BudgetEditTools>();
+      .WithTools<BudgetEditTools>()
+      .WithTools<BudgetSetupTools>()
+      .WithTools<TrendTools>();
   }
 
   /// <summary>

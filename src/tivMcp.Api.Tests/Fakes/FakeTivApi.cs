@@ -14,6 +14,15 @@ internal sealed class FakeTivApi : HttpMessageHandler
 
   public List<HttpRequestMessage> Requests { get; } = [];
 
+  /// <summary>
+  /// The usage checks and reports the server made around tool calls. They are kept apart from
+  /// <see cref="Requests"/> so a test about a tool sees only that tool's own calls.
+  /// </summary>
+  public List<HttpRequestMessage> UsageRequests { get; } = [];
+
+  /// <summary>Answers the usage checks and reports; by default every call is allowed.</summary>
+  public Func<HttpRequestMessage, HttpResponseMessage> RespondToUsage { get; set; } = _ => Json("""{"allowed":true,"tier":"free"}""");
+
   public FakeTivApi(Func<HttpRequestMessage, HttpResponseMessage> respond)
   {
     _respond = respond;
@@ -28,6 +37,15 @@ internal sealed class FakeTivApi : HttpMessageHandler
 
   protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
   {
+    if (request.RequestUri!.AbsolutePath.Contains("/usage/", StringComparison.Ordinal))
+    {
+      lock (UsageRequests)
+      {
+        UsageRequests.Add(request);
+      }
+      return Task.FromResult(RespondToUsage(request));
+    }
+
     Requests.Add(request);
     return Task.FromResult(_respond(request));
   }

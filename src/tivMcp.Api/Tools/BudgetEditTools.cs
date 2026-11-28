@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using tivMcp.Api.Models;
 using tivMcp.Api.Services.Interfaces;
 
 namespace tivMcp.Api.Tools;
@@ -14,11 +16,16 @@ namespace tivMcp.Api.Tools;
 [McpServerToolType]
 public sealed class BudgetEditTools
 {
-  private const string NamesHint = " Use the exact category and item names shown by get_budget_summary.";
+  // On every tool that saves: what to do when the save is in doubt.
+  private const string SaveHint = " If this fails with 'The save may or may not have gone through', check with get_budget_summary before retrying, so nothing is recorded twice.";
+  private const string NamesHint = " Use the exact category and item names shown by get_budget_summary." + SaveHint;
   private const string YearHint = "The four-digit year of the budget, for example 2026.";
   private const string MonthHint = "The month of the budget, 1 (January) to 12 (December).";
   private const string BudgetNameHint = "The budget's name. Leave empty for the user's main budget, which is named 'default'.";
   private const string CategoryToNarrowHint = "The category the item is in. Only needed when two categories have an item with the same name.";
+
+  /// <summary>The most transactions add_actuals takes in one call.</summary>
+  public const int MostActualsAtOnce = 50;
 
   private readonly IBudgetEditor _budgetEditor;
 
@@ -34,7 +41,7 @@ public sealed class BudgetEditTools
   /// Agent API tool update_estimates.
   /// </summary>
   [McpServerTool(Name = "update_estimates", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
-  [Description("Set the budget's estimated total income and estimated total spending for the month. Both values replace the current ones.")]
+  [Description("Set the budget's estimated total income and estimated total spending for the month. Both values replace the current ones." + SaveHint)]
   public Task<string> UpdateEstimates(
     [Description(YearHint)] int year,
     [Description(MonthHint)] int month,
@@ -53,7 +60,9 @@ public sealed class BudgetEditTools
   /// Agent API tool add_category.
   /// </summary>
   [McpServerTool(Name = "add_category", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-  [Description("Add a new category to the budget. Every category is based on a category template; call get_budget_summary with includeTemplates set to true to see the template names available.")]
+  [Description(
+    "Add a new category to the budget. Every category is based on a category template; call get_budget_summary with includeTemplates set to true to see the template names available." + SaveHint
+  )]
   public Task<string> AddCategory(
     [Description(YearHint)] int year,
     [Description(MonthHint)] int month,
@@ -194,13 +203,24 @@ public sealed class BudgetEditTools
   }
 
   /// <summary>
+  /// When to pass account ids on a new transaction. An account id is a link, and the API posts a
+  /// link as the far side of a transfer, so ids that only repeat a default are never wanted.
+  /// </summary>
+  internal const string AccountIdsHint =
+    "Leave accountLinkId and accountCategoryLinkId empty when the transaction uses the item's default account "
+    + "(shown as [default-acct:...] in get_budget_summary). Only pass account ids to use a different account than the default. "
+    + "Every transaction that is not a credit card purchase is posted to the budget's own account automatically, so never pass that account's ids either; "
+    + "on such a transaction account ids mean a transfer to or from the account named. ";
+
+  /// <summary>
   /// Agent API tool add_actual.
   /// </summary>
   [McpServerTool(Name = "add_actual", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
   [Description(
     "Record a transaction (an actual) against a budget item, such as a purchase or a paycheck. "
+      + "To record several in the same month use add_actuals instead: one call, one save. "
       + "For a purchase paid by credit card set isCreditWithdrawl to true. "
-      + "If the item has a default account (shown as [default-acct:...] in get_budget_summary) no account ids are needed unless the user names a different card. "
+      + AccountIdsHint
       + "If the item has no default account, a credit card purchase needs accountLinkId and accountCategoryLinkId; call get_available_accounts to find them."
       + NamesHint
   )]
@@ -213,25 +233,287 @@ public sealed class BudgetEditTools
     [Description("The transaction date written as YYYY-MM-DD. It should fall in the budget's month.")] string date,
     [Description(CategoryToNarrowHint)] string? categoryDescription = null,
     [Description("True when the purchase was paid with a credit account.")] bool isCreditWithdrawl = false,
-    [Description("The full 36-character id of the account to link the transaction to. See the tool description for when it is needed.")] string? accountLinkId = null,
-    [Description("The full 36-character id of the account category to link the transaction to. Needed whenever accountLinkId is given.")] string? accountCategoryLinkId = null,
+    [Description(NewActual.AccountLinkIdHint)] string? accountLinkId = null,
+    [Description(NewActual.AccountCategoryLinkIdHint)] string? accountCategoryLinkId = null,
     [Description(BudgetNameHint)] string? budgetName = null,
     CancellationToken cancellationToken = default
   )
   {
+    var actual = new NewActual
+    {
+      ItemDescription = itemDescription,
+      Amount = amount,
+      Description = description,
+      Date = date,
+      CategoryDescription = categoryDescription,
+      IsCreditWithdrawl = isCreditWithdrawl,
+      AccountLinkId = accountLinkId,
+      AccountCategoryLinkId = accountCategoryLinkId,
+    };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "add_actual", AddActualArguments(actual, string.Empty), cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool add_actual, once for each transaction, applied to the budget together.
+  /// </summary>
+  [McpServerTool(Name = "add_actuals", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+  [Description(
+    "Record several transactions (actuals) in one month's budget at once, for example a pile of receipts or a statement's charges. "
+      + "Prefer this over calling add_actual repeatedly: the budget is saved once. "
+      + "Each entry has the same fields and rules as add_actual. "
+      + AccountIdsHint
+      + "All or nothing: if any entry cannot be recorded, none are, and the error says which entry and why. "
+      + "All entries go into the one budget month given; transactions of another month need their own call. "
+      + "Set combined to true when the entries were ONE payment on the bank or card statement, for example a $120 shop visit that was $90 of groceries and $30 of household goods: "
+      + "they are recorded as one combined transaction. Combined entries need the same date and the same payment method, and at least 2 of them."
+      + NamesHint
+  )]
+  public Task<string> AddActuals(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The transactions to record, at least 1 and at most 50.")] NewActual[] actuals,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    [Description("True when the entries were one payment on the bank or card statement and should be recorded as one combined transaction. Defaults to false.")] bool combined = false,
+    CancellationToken cancellationToken = default
+  )
+  {
+    if (actuals == null || actuals.Length == 0)
+    {
+      throw new McpException($"{nameof(actuals)} must list at least one transaction.");
+    }
+
+    if (actuals.Length > MostActualsAtOnce)
+    {
+      throw new McpException($"{nameof(actuals)} can list at most {MostActualsAtOnce} transactions, but {actuals.Length} were given. Send them in several calls.");
+    }
+
+    if (combined && actuals.Length < 2)
+    {
+      throw new McpException($"{nameof(actuals)} must list at least 2 transactions when {nameof(combined)} is true. One transaction is not a combination.");
+    }
+
+    var calls = new List<ToolCall>(actuals.Length);
+    for (var index = 0; index < actuals.Length; index++)
+    {
+      // Entries are numbered from 1 in messages, as a person would count them.
+      var entry = $"{nameof(actuals)} entry {index + 1}";
+      if (actuals[index] == null)
+      {
+        throw new McpException($"{entry} is empty.");
+      }
+
+      calls.Add(new ToolCall("add_actual", AddActualArguments(actuals[index], entry + ": ")));
+    }
+
+    if (combined)
+    {
+      // One agent API tool takes the whole list, so it can check the entries against each other
+      // and give them one combination. Each entry is add_actual's arguments, as above.
+      var entries = calls.Select(call => WithoutNulls(new Dictionary<string, object?>(call.Arguments))).ToList();
+      var arguments = new Dictionary<string, object?> { ["actuals"] = entries };
+
+      return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "add_combined_actuals", arguments, cancellationToken);
+    }
+
+    return _budgetEditor.ApplyAllAndSaveAsync(year, month, budgetName, calls, cancellationToken);
+  }
+
+  /// <summary>
+  /// Checks one transaction and returns it as the agent API's add_actual arguments.
+  /// </summary>
+  /// <param name="actual">The transaction.</param>
+  /// <param name="entry">Text put in front of an argument's name in an error, to say which of several transactions is wrong.</param>
+  private static Dictionary<string, object?> AddActualArguments(NewActual actual, string entry)
+  {
+    return new Dictionary<string, object?>
+    {
+      ["item_description"] = ToolArguments.RequireText(entry + "itemDescription", actual.ItemDescription),
+      ["amount"] = actual.Amount,
+      ["description"] = ToolArguments.RequireText(entry + "description", actual.Description),
+      ["date"] = ToolArguments.RequireDate(entry + "date", actual.Date),
+      ["category_description"] = ToolArguments.OptionalText(entry + "categoryDescription", actual.CategoryDescription),
+      ["is_credit_withdrawl"] = actual.IsCreditWithdrawl,
+      ["account_link_id"] = ToolArguments.OptionalText(entry + "accountLinkId", actual.AccountLinkId),
+      ["account_category_link_id"] = ToolArguments.OptionalText(entry + "accountCategoryLinkId", actual.AccountCategoryLinkId),
+    };
+  }
+
+  /// <summary>
+  /// What a combined transaction is, said once on every tool that makes or changes one.
+  /// </summary>
+  internal const string CombinedHint =
+    "A combined transaction is several budget transactions that are ONE line on the bank or card statement; " + "get_budget_summary marks its members with the same [combined:...] tag. ";
+
+  /// <summary>The most split lines split_actual takes in one call.</summary>
+  public const int MostSplitLinesAtOnce = 20;
+
+  /// <summary>
+  /// Agent API tool split_actual.
+  /// </summary>
+  [McpServerTool(Name = "split_actual", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+  [Description(
+    "Split a transaction between budget items, for example when medicine was bought with the groceries. "
+      + "Each split line becomes a new transaction on its item with the original's date and payment method "
+      + "(a credit card purchase splits into purchases on the same card), and the original keeps what the lines do not claim, so the total paid never changes. "
+      + "The parts stay one combined transaction. "
+      + CombinedHint
+      + "A line goes to a different item that is already in this budget and on the same side (expense or income) as the original; "
+      + "the lines must add up to less than the original amount. "
+      + "When several transactions under the item share the description, give actualDate or actualAmount to say which one."
+      + NamesHint
+  )]
+  public Task<string> SplitActual(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The name of the budget item the transaction is under.")] string itemDescription,
+    [Description("The description of the transaction to split.")] string actualDescription,
+    [Description("The parts to move to other items, at least 1 and at most 20.")] SplitLine[] splits,
+    [Description(CategoryToNarrowHint)] string? categoryDescription = null,
+    [Description("The transaction's date written as YYYY-MM-DD, to tell apart transactions with the same description.")] string? actualDate = null,
+    [Description("The transaction's amount, to tell apart transactions with the same description.")] decimal? actualAmount = null,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    if (splits == null || splits.Length == 0)
+    {
+      throw new McpException($"{nameof(splits)} must list at least one part to move to another item.");
+    }
+
+    if (splits.Length > MostSplitLinesAtOnce)
+    {
+      throw new McpException($"{nameof(splits)} can list at most {MostSplitLinesAtOnce} parts, but {splits.Length} were given.");
+    }
+
+    var lines = new List<Dictionary<string, object?>>(splits.Length);
+    for (var index = 0; index < splits.Length; index++)
+    {
+      var entry = $"{nameof(splits)} entry {index + 1}";
+      var line = splits[index] ?? throw new McpException($"{entry} is empty.");
+      lines.Add(
+        WithoutNulls(
+          new Dictionary<string, object?>
+          {
+            ["item_description"] = ToolArguments.RequireText($"{entry}: itemDescription", line.ItemDescription),
+            ["amount"] = line.Amount,
+            ["description"] = ToolArguments.OptionalText($"{entry}: description", line.Description),
+            ["category_description"] = ToolArguments.OptionalText($"{entry}: categoryDescription", line.CategoryDescription),
+          }
+        )
+      );
+    }
+
     var arguments = new Dictionary<string, object?>
     {
       ["item_description"] = ToolArguments.RequireText(nameof(itemDescription), itemDescription),
-      ["amount"] = amount,
-      ["description"] = ToolArguments.RequireText(nameof(description), description),
-      ["date"] = ToolArguments.RequireDate(nameof(date), date),
+      ["actual_description"] = ToolArguments.RequireText(nameof(actualDescription), actualDescription),
+      ["splits"] = lines,
       ["category_description"] = ToolArguments.OptionalText(nameof(categoryDescription), categoryDescription),
-      ["is_credit_withdrawl"] = isCreditWithdrawl,
-      ["account_link_id"] = ToolArguments.OptionalText(nameof(accountLinkId), accountLinkId),
-      ["account_category_link_id"] = ToolArguments.OptionalText(nameof(accountCategoryLinkId), accountCategoryLinkId),
+      ["actual_date"] = ToolArguments.OptionalDate(nameof(actualDate), actualDate),
+      ["actual_amount"] = actualAmount,
     };
 
-    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "add_actual", arguments, cancellationToken);
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "split_actual", arguments, cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool combine_actuals.
+  /// </summary>
+  [McpServerTool(Name = "combine_actuals", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+  [Description(
+    "Mark transactions already in the budget as one combined transaction, for example one transfer that funded several savings goals, "
+      + "one cash withdrawal for several envelopes, or one check or card charge covering several items. "
+      + CombinedHint
+      + "If one of the transactions is already combined, the others are added to that combination. "
+      + "The transactions must have the same date, be on the same account and be paid the same way (all by credit card, all cash, or neither); "
+      + "transfers to another account combine only with other transfers to that same account. "
+      + "No amount, date or description changes. To record new transactions already combined use add_actuals with combined set to true; "
+      + "to divide one transaction between items use split_actual."
+      + NamesHint
+  )]
+  public Task<string> CombineActuals(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The transactions to combine, at least 2 and at most 50.")] ActualReference[] actuals,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    var arguments = new Dictionary<string, object?> { ["actuals"] = ActualReferenceArguments(actuals, 2) };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "combine_actuals", arguments, cancellationToken);
+  }
+
+  /// <summary>
+  /// Agent API tool separate_actuals.
+  /// </summary>
+  [McpServerTool(Name = "separate_actuals", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+  [Description(
+    "Take transactions out of the combined transaction they belong to. The transactions themselves stay, with their amounts, and only stop being marked as one bank line. "
+      + CombinedHint
+      + "Other members stay combined with each other; to dissolve a combination, name every one of its transactions."
+      + NamesHint
+  )]
+  public Task<string> SeparateActuals(
+    [Description(YearHint)] int year,
+    [Description(MonthHint)] int month,
+    [Description("The transactions to take out of their combined transaction, at least 1 and at most 50.")] ActualReference[] actuals,
+    [Description(BudgetNameHint)] string? budgetName = null,
+    CancellationToken cancellationToken = default
+  )
+  {
+    var arguments = new Dictionary<string, object?> { ["actuals"] = ActualReferenceArguments(actuals, 1) };
+
+    return _budgetEditor.ApplyAndSaveAsync(year, month, budgetName, "separate_actuals", arguments, cancellationToken);
+  }
+
+  /// <summary>
+  /// Checks a list of named transactions and returns it as the agent API's arguments.
+  /// </summary>
+  /// <param name="actuals">The transactions named.</param>
+  /// <param name="fewest">The fewest the tool can work with.</param>
+  private static List<Dictionary<string, object?>> ActualReferenceArguments(ActualReference[] actuals, int fewest)
+  {
+    if (actuals == null || actuals.Length < fewest)
+    {
+      throw new McpException($"{nameof(actuals)} must list at least {fewest} transaction{(fewest == 1 ? string.Empty : "s")}.");
+    }
+
+    if (actuals.Length > MostActualsAtOnce)
+    {
+      throw new McpException($"{nameof(actuals)} can list at most {MostActualsAtOnce} transactions, but {actuals.Length} were given.");
+    }
+
+    var references = new List<Dictionary<string, object?>>(actuals.Length);
+    for (var index = 0; index < actuals.Length; index++)
+    {
+      var entry = $"{nameof(actuals)} entry {index + 1}";
+      var actual = actuals[index] ?? throw new McpException($"{entry} is empty.");
+      references.Add(
+        WithoutNulls(
+          new Dictionary<string, object?>
+          {
+            ["item_description"] = ToolArguments.RequireText($"{entry}: itemDescription", actual.ItemDescription),
+            ["actual_description"] = ToolArguments.RequireText($"{entry}: actualDescription", actual.ActualDescription),
+            ["category_description"] = ToolArguments.OptionalText($"{entry}: categoryDescription", actual.CategoryDescription),
+            ["actual_date"] = ToolArguments.OptionalDate($"{entry}: actualDate", actual.ActualDate),
+            ["actual_amount"] = actual.ActualAmount,
+          }
+        )
+      );
+    }
+
+    return references;
+  }
+
+  /// <summary>
+  /// Drops what the caller left out of an entry inside a list. The editor does this for a tool's
+  /// own arguments, but not for the entries of a list among them.
+  /// </summary>
+  private static Dictionary<string, object?> WithoutNulls(Dictionary<string, object?> arguments)
+  {
+    return arguments.Where(argument => argument.Value != null).ToDictionary(argument => argument.Key, argument => argument.Value);
   }
 
   /// <summary>
@@ -240,6 +522,7 @@ public sealed class BudgetEditTools
   [McpServerTool(Name = "update_actual", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
   [Description(
     "Change a transaction's amount, description or date. The transaction is found by its current description under the item; "
+      + "a combined transaction's member stays combined, so change its date only together with the other members. "
       + "when several transactions under the item share that description, give actualDate or actualAmount to say which one."
       + NamesHint
   )]
@@ -342,6 +625,7 @@ public sealed class BudgetEditTools
   [Description(
     "Rectify the whole budget: set every item's budgeted amount to what was actually spent on it. "
       + "Items with no spending are set to zero and overspent items are raised to match. This overwrites every budgeted amount in the month; confirm with the user first."
+      + SaveHint
   )]
   public Task<string> RectifyBudget(
     [Description(YearHint)] int year,
@@ -400,7 +684,8 @@ public sealed class BudgetEditTools
   [McpServerTool(Name = "get_available_accounts", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
   [Description(
     "List the accounts a budget transaction can be linked to, each with its id and its categories' ids. "
-      + "Use the account's id as accountLinkId and a category's id as accountCategoryLinkId when calling add_actual. "
+      + "Use the account's id as accountLinkId and a category's id as accountCategoryLinkId when calling add_actual, "
+      + "and only for an account other than the item's default account and the budget's own account. "
       + "This is for preparing a change, so the connection needs permission to make changes."
   )]
   public Task<string> GetAvailableAccounts(

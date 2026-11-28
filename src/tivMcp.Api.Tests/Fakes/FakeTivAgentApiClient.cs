@@ -12,9 +12,16 @@ internal sealed class FakeTivAgentApiClient : ITivAgentApiClient
 
   public List<(string Path, string Body)> Calls { get; } = [];
 
+  /// <summary>When set, every call fails with this error.</summary>
+  public Exception? Failure { get; set; }
+
   public Task<string> PostJsonAsync(string path, string jsonBody, CancellationToken cancellationToken = default)
   {
     Calls.Add((path, jsonBody));
+    if (Failure != null)
+    {
+      return Task.FromException<string>(Failure);
+    }
     return Task.FromResult(JsonToReturn);
   }
 }
